@@ -51,8 +51,9 @@ public:
     virtual ~EagleCamera();
 
 
-    enum EagleCameraFeatureType {Unknown = -1, IntType, FloatType, StringType};
-    typedef std::map<std::string,EagleCameraFeatureType> EagleCameraFeatureNameMap;
+    enum EagleCameraFeatureType {UnknownType = -1, IntType, FloatType, StringType};
+    enum EagleCameraFeatureAccess {UnknownAccess = -1, ReadWrite, ReadOnly, WriteOnly};
+
 
 
 protected:
@@ -138,6 +139,10 @@ public:
     EagleCameraFeature & operator[](const char* name);
     EagleCameraFeature & operator[](const std::string & name);
 
+        // operator to execute command
+
+    EagleCameraFeature & operator()(const char* name);
+    EagleCameraFeature & operator()(const std::string & name);
 
 protected:
 
