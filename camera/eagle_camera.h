@@ -64,6 +64,12 @@ protected:
     public:
         EagleCameraFeature();
 
+        void setType(const EagleCameraFeatureType type);
+        EagleCameraFeatureType getType() const;
+
+        void setAccess(const EagleCameraFeatureAccess access);
+        EagleCameraFeatureAccess getAccess() const;
+
         // get feature value operators
 
         template<typename T, typename = typename std::enable_if<std::is_arithmetic<T>::value>::type>
@@ -112,8 +118,9 @@ protected:
         EagleCameraFeature & operator = (const std::string & val);
 
     private:
-        EagleCamera::EagleCameraFeatureType _type;
         std::string _name;
+        EagleCamera::EagleCameraFeatureType _type;
+        EagleCamera::EagleCameraFeatureAccess _access;
 
         union {
             int64_t _int_val;

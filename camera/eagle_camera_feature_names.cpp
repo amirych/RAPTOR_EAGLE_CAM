@@ -15,7 +15,7 @@ EagleCameraFeatureNameMap zz = {
 
 };
 
-EagleCameraFeatureNameMap EAGLE_CAMERA_DEFAULT_FEATURE_NAME = {
+EagleCameraFeatureNameMap EAGLE_CAMERA_DEFINED_FEATURE = {
     { "HBIN", {EagleCamera::IntType, EagleCamera::ReadWrite, {1,64}} },
     { "VBIN", {EagleCamera::IntType, EagleCamera::ReadWrite, {1,64}} },
 
