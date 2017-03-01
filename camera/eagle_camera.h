@@ -26,6 +26,10 @@
 
 #include <string>
 #include <map>
+#include <functional>
+#include <vector>
+#include <memory>
+#include <exception>
 
                     /*********************************************
                     *                                            *
@@ -39,11 +43,17 @@
 // just forward declaration
 
 class EAGLE_CAMERA_LIBRARY_EXPORT EagleCamera_StringFeature;
+class EAGLE_CAMERA_LIBRARY_EXPORT EagleCameraException;
+
+
 
 class EAGLE_CAMERA_LIBRARY_EXPORT EagleCamera
 {
     friend class EagleCamera_StringFeature;
 public:
+
+    typedef int64_t IntegerType;
+    typedef double FloatingPointType;
 
     EagleCamera(const char* epix_video_fmt_filename = nullptr);
     EagleCamera(const std::string &epix_video_fmt_filename);
@@ -54,9 +64,65 @@ public:
     enum EagleCameraFeatureType {UnknownType = -1, IntType, FloatType, StringType};
     enum EagleCameraFeatureAccess {UnknownAccess = -1, ReadWrite, ReadOnly, WriteOnly};
 
-
+    enum EagleCameraError { Error_OK, Error_Uninitialized};
 
 protected:
+
+            /*   DECLARATION OF BASE CLASS FOR CAMERA FEATURES  */
+
+    class CameraAbstractFeature {
+    public:
+        CameraAbstractFeature(const EagleCamera::EagleCameraFeatureType type,
+                              const EagleCamera::EagleCameraFeatureAccess access);
+
+        virtual ~CameraAbstractFeature();
+    protected:
+        EagleCamera::EagleCameraFeatureType _type;
+        EagleCamera::EagleCameraFeatureAccess _access;
+    };
+
+    typedef std::map<std::string, std::unique_ptr<CameraAbstractFeature>> camera_feature_map_t;
+    friend EagleCamera::camera_feature_map_t INIT_CAMERA_FEATURES();
+
+            /*   DECLARATION OF TEMPLATE CLASS FOR CAMERA FEATURES  */
+
+    template<typename T, typename = typename std::enable_if<std::is_arithmetic<T>::value ||
+                                                            std::is_same<T,std::string>::value>::type>
+    class CameraFeature: public CameraAbstractFeature {
+    public:
+        CameraFeature(const EagleCamera::EagleCameraFeatureAccess access,
+                      const std::vector<T> & range,
+                      const std::function<T()> getter = nullptr,
+                      const std::function<void(const T)> setter = nullptr):
+            CameraAbstractFeature(EagleCamera::UnknownType, access), _range(range),
+            _getter(getter), _setter(setter)
+        {
+            if ( std::is_integral<T>::value ) {
+                _type = EagleCamera::IntType;
+            } else if ( std::is_floating_point<T>::value ) {
+                _type = EagleCamera::FloatType;
+            } else if ( std::is_same<T,std::string>::value ) {
+                _type = EagleCamera::StringType;
+            };
+        }
+
+        T get() {
+            if ( _getter ) return _getter();
+        }
+
+        void set(const T val) {
+            if ( _setter ) _setter(val);
+        }
+
+        std::vector<T> range() const {
+            return _range;
+        }
+
+    private:
+        std::function<T()> _getter;
+        std::function<void(const T)> _setter;
+        std::vector<T> _range;
+    };
 
             /*   DECLARATION OF A PROXY CLASS TO ACCESS EAGLE CAMERA FEATURES  */
 
@@ -136,24 +202,30 @@ protected:
         void setFloat(const double val);
         void setString();
 
+        static camera_feature_map_t PREDEFINED_CAMERA_FEATURES; // TODO: !!!
+
     };      /*   END OF EagleCameraFeature DECLARATION   */
+
+    friend class EagleCameraFeature;
 
 
 public:
 
-        // operator to access camera feature
+                // operator to access camera feature
 
     EagleCameraFeature & operator[](const char* name);
     EagleCameraFeature & operator[](const std::string & name);
 
-        // operator to execute command
+    // operator to execute command
 
     EagleCameraFeature & operator()(const char* name);
     EagleCameraFeature & operator()(const std::string & name);
 
+
 protected:
 
     EagleCameraFeature cameraFeature;
+
 };
 
 
@@ -170,6 +242,25 @@ public:
 private:
     std::string _name;
     std::string _value;
+};
+
+
+
+class EAGLE_CAMERA_LIBRARY_EXPORT EagleCameraException: public std::exception
+{
+public:
+    EagleCameraException(const int xclib_err, const EagleCamera::EagleCameraError camera_err, const char* context);
+    EagleCameraException(const int xclib_err, const EagleCamera::EagleCameraError camera_err, const std::string & context);
+
+    int XCLIB_Error() const;
+    EagleCamera::EagleCameraError Camera_Error() const;
+
+    const char* what() const NOEXCEPT_DECL;
+private:
+    int _xclib_err;
+    EagleCamera::EagleCameraError _camera_err;
+
+    std::string _context;
 };
 
 #endif // EAGLE_CAMERA_H

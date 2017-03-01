@@ -1,3 +1,23 @@
+#include <eagle_camera.h>
+
+            /****************************************
+            *                                       *
+            *   IMPLEMENTATION OF FEATURE CLASSES   *
+                                                    *
+            ****************************************/
+
+EagleCamera::CameraAbstractFeature::CameraAbstractFeature(const EagleCamera::EagleCameraFeatureType type,
+                                                          const EagleCamera::EagleCameraFeatureAccess access):
+    _type(type), _access(access)
+{
+}
+
+EagleCamera::CameraAbstractFeature::~CameraAbstractFeature()
+{
+}
+
+
+
 
 
              /***********************************************
@@ -8,7 +28,12 @@
              * *********************************************/
 
 
-#include <eagle_camera.h>
+            // init static predefined features map
+
+extern EagleCamera::camera_feature_map_t INIT_CAMERA_FEATURES();
+
+EagleCamera::camera_feature_map_t EagleCamera::EagleCameraFeature::PREDEFINED_CAMERA_FEATURES = INIT_CAMERA_FEATURES();
+
 
 EagleCamera::EagleCameraFeature::EagleCameraFeature()
 {
