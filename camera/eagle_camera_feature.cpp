@@ -6,9 +6,10 @@
                                                     *
             ****************************************/
 
-EagleCamera::CameraAbstractFeature::CameraAbstractFeature(const EagleCamera::EagleCameraFeatureType type,
+EagleCamera::CameraAbstractFeature::CameraAbstractFeature(const std::string &name,
+                                                          const EagleCamera::EagleCameraFeatureType type,
                                                           const EagleCamera::EagleCameraFeatureAccess access):
-    _type(type), _access(access)
+    _name(name), _type(type), _access(access)
 {
 }
 
@@ -16,6 +17,21 @@ EagleCamera::CameraAbstractFeature::~CameraAbstractFeature()
 {
 }
 
+
+std::string EagleCamera::CameraAbstractFeature::name() const
+{
+    return _name;
+}
+
+EagleCamera::EagleCameraFeatureType EagleCamera::CameraAbstractFeature::type() const
+{
+    return _type;
+}
+
+EagleCamera::EagleCameraFeatureAccess EagleCamera::CameraAbstractFeature::access() const
+{
+    return _access;
+}
 
 
 
@@ -28,91 +44,144 @@ EagleCamera::CameraAbstractFeature::~CameraAbstractFeature()
              * *********************************************/
 
 
-            // init static predefined features map
 
-extern EagleCamera::camera_feature_map_t INIT_CAMERA_FEATURES();
+EagleCamera::CameraFeatureProxy::CameraFeatureProxy(EagleCamera *camera):
+    _camera(camera)
+{
+}
 
-EagleCamera::camera_feature_map_t EagleCamera::EagleCameraFeature::PREDEFINED_CAMERA_FEATURES = INIT_CAMERA_FEATURES();
 
 
-EagleCamera::EagleCameraFeature::EagleCameraFeature()
+EagleCamera::CameraFeatureProxy::operator EagleCamera_StringFeature()
+{
+    if ( !_camera ) { // strange, but should be handled
+        throw EagleCameraException(0,EagleCamera::Error_NullPointer,"Pointer to camera object is null!");
+    }
+
+    if ( !_camera->currentCameraFeature ) {
+        throw EagleCameraException(0,EagleCamera::Error_NullPointer,"Pointer to camera feature object is null!");
+    }
+
+
+    if ( _camera->currentCameraFeature->access() == EagleCamera::WriteOnly ) {
+        std::string log_str = "Try to get value of write-only feature '" +
+                _camera->currentCameraFeature->name() + "'!";
+        throw EagleCameraException(0,EagleCamera::Error_WriteOnlyFeature,log_str);
+    }
+
+    EagleCamera::CameraFeature<std::string> *f =
+            static_cast<EagleCamera::CameraFeature<std::string>*>(_camera->currentCameraFeature);
+
+    EagleCamera_StringFeature sf;
+
+    sf._name = _camera->currentCameraFeature->name();
+    sf._value = f->get();
+
+    return sf;
+}
+
+
+EagleCamera::CameraFeatureProxy & EagleCamera::CameraFeatureProxy::operator = (const std::string & val)
+{
+    if ( !_camera ) { // strange, but should be handled
+        throw EagleCameraException(0,EagleCamera::Error_NullPointer,"Pointer to camera object is null!");
+    }
+
+    if ( !_camera->currentCameraFeature ) {
+        throw EagleCameraException(0,EagleCamera::Error_NullPointer,"Pointer to camera feature object is null!");
+    }
+
+    if ( _camera->currentCameraFeature->access() == EagleCamera::ReadOnly ) {
+        std::string log_str = "Try to set value to read-only feature '" +
+                _camera->currentCameraFeature->name() + "'!";
+        throw EagleCameraException(0,EagleCamera::Error_ReadOnlyFeature,log_str);
+    }
+
+    EagleCamera::CameraFeature<std::string> *f = static_cast<EagleCamera::CameraFeature<std::string> *>
+                                                            (_camera->currentCameraFeature);
+
+    f->set(val);
+
+    return *this;
+}
+
+
+EagleCamera::CameraFeatureProxy & EagleCamera::CameraFeatureProxy::operator = (const char* val)
+{
+    return operator = (std::string(val));
+}
+
+
+
+                    /******************************************
+                    *                                         *
+                    *   IMPLEMENTATION OF A CLASS TO ACCESS   *
+                    *       EAGLE CAMERA STRING FEATURES      *
+                    *                                         *
+                    * ****************************************/
+
+EagleCamera_StringFeature::EagleCamera_StringFeature():
+    _name(), _value()
+{
+}
+
+
+EagleCamera_StringFeature::EagleCamera_StringFeature(EagleCamera_StringFeature &&other):
+    EagleCamera_StringFeature()
+{
+    swap(_name,other._name);
+    swap(_value,other._value);
+}
+
+
+EagleCamera_StringFeature::EagleCamera_StringFeature(const EagleCamera_StringFeature &other):
+    _name(other._name), _value(other._value)
 {
 
 }
 
 
-void EagleCamera::EagleCameraFeature::setType(const EagleCamera::EagleCameraFeatureType type)
+EagleCamera_StringFeature::EagleCamera_StringFeature(EagleCamera::CameraFeatureProxy &feature):
+    EagleCamera_StringFeature()
 {
-    _type = type;
+    if ( !feature._camera ) { // strange, but should be handled
+        throw EagleCameraException(0,EagleCamera::Error_NullPointer,"Pointer to camera object is null!");
+    }
+
+    if ( !feature._camera->currentCameraFeature ) {
+        throw EagleCameraException(0,EagleCamera::Error_NullPointer,"Pointer to camera feature object is null!");
+    }
+
+    if ( feature._camera->currentCameraFeature->access() == EagleCamera::WriteOnly ) {
+        std::string log_str = "Try to get value of write-only feature '" +
+                feature._camera->currentCameraFeature->name() + "'!";
+        throw EagleCameraException(0,EagleCamera::Error_WriteOnlyFeature,log_str);
+    }
+
+    EagleCamera::CameraFeature<std::string> *f = static_cast<EagleCamera::CameraFeature<std::string> *>
+                                                             (feature._camera->currentCameraFeature);
+
+    _name = f->name();
+    _value = f->get();
 }
 
 
-EagleCamera::EagleCameraFeatureType EagleCamera::EagleCameraFeature::getType() const
+std::string EagleCamera_StringFeature::name() const
 {
-    return _type;
+    return _name;
 }
 
 
-void EagleCamera::EagleCameraFeature::setAccess(const EagleCamera::EagleCameraFeatureAccess access)
+std::string EagleCamera_StringFeature::value() const
 {
-    _access = access;
+    return _value;
 }
 
 
-EagleCamera::EagleCameraFeatureAccess EagleCamera::EagleCameraFeature::getAccess() const
+EagleCamera_StringFeature &EagleCamera_StringFeature::operator =(EagleCamera_StringFeature other)
 {
-    return _access;
-}
+    swap(_name,other._name);
+    swap(_value,other._value);
 
-
-                        /*  PRIVATE METHODS  */
-
-void EagleCamera::EagleCameraFeature::setInt(const int64_t val)
-{
-    if ( _type != EagleCamera::IntType ) { // TODO: exception!!!
-
-    }
-
-    if ( _access == EagleCamera::ReadOnly ) { // TODO: exception!!!
-
-    }
-
-    if ( !_name.compare("HBIN") ) {
-
-    } else if ( !_name.compare("VBIN") ) {
-
-    } else if ( !_name.compare("ROILeft") ) {
-
-    } else if ( !_name.compare("ROITop") ) {
-
-    } else if ( !_name.compare("ROIWidth") ) {
-
-    } else if ( !_name.compare("ROIHeight") ) {
-
-    }
-}
-
-
-void EagleCamera::EagleCameraFeature::setFloat(const double val)
-{
-    if ( _type != EagleCamera::FloatType ) { // TODO: exception!!!
-
-    }
-
-    if ( _access == EagleCamera::ReadOnly ) { // TODO: exception!!!
-
-    }
-
-    if ( !_name.compare("ExposureTime") ) {
-
-    } else if ( !_name.compare("FrameRate") ) {
-
-    } else if ( !_name.compare("ShutterOpenDelay") ) {
-
-    } else if ( !_name.compare("ShutterCloseDelay") ) {
-
-    } else if ( !_name.compare("TECSetPoint") ) {
-
-    }
-
+    return *this;
 }
