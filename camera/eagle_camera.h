@@ -24,12 +24,15 @@
 
 #include <export_decl.h>
 
+#include <limits>
 #include <string>
+#include <sstream>
 #include <map>
 #include <functional>
 #include <vector>
 #include <memory>
 #include <exception>
+#include <thread>
 
                     /*********************************************
                     *                                            *
@@ -67,8 +70,14 @@ public:
 
     enum EagleCameraFeatureAccess {UnknownAccess = -1, ReadWrite, ReadOnly, WriteOnly};
 
-    enum EagleCameraError { Error_OK, Error_Uninitialized, Error_NullPointer, Error_UnknowCommand,
-                            Error_UnknowFeature, Error_ReadOnlyFeature, Error_WriteOnlyFeature};
+    enum EagleCameraError { Error_Uninitialized = std::numeric_limits<int>::min(),
+                            Error_NullPointer, Error_UnknowCommand,
+                            Error_UnknowFeature, Error_ReadOnlyFeature, Error_WriteOnlyFeature,
+                            Error_OK = 0,
+                            // errors from EAGLE V 4240 Instruction Manual
+                            Error_ETX_SER_TIMEOUT = 0x51, Error_ETX_CK_SUM_ERR,
+                            Error_ETX_I2C_ERR, Error_ETX_UNKNOWN_CMD, Error_ETX_DONE_LOW
+                          };
 
     enum EagleCameraLogLevel {LOG_LEVEL_QUIET, LOG_LEVEL_ERROR, LOG_LEVEL_VERBOSE};
 
@@ -334,6 +343,9 @@ protected:
     EagleCamera::EagleCameraLogLevel logLevel;
     std::ostream *cameraLog;
 
+    double ADC_LinearCoeffs[2];
+    double DAC_LinearCoeffs[2];
+
 
         /*  feauture control members  */
 
@@ -348,16 +360,159 @@ protected:
     void InitCameraCommands();
 
 
-        /*  CAMERALINK serial port methods  */
+        /*  CAMERALINK serial port methods and member */
 
-    void resetMicro();
-    void resetFPGA();
+    typedef std::vector<unsigned char> byte_vector_t;
 
-    void setSystemState(unsigned char state);
-    void setCtrlRegister(unsigned char reg);
+    bool CL_ACK_BIT_ENABLED;
+    bool CL_CHK_SUM_BIT_ENABLED;
+
+    int cl_read(byte_vector_t &data, const bool all = false); // all == true:  read all bytes from Rx-buffer,
+                                                              // data.size():
+                                                              //   0 and no (ACK and CHK_SUM):
+                                                              //     return number of available bytes in Rx-buffer,
+                                                              //   N: read a least N bytes or throw timeout
+                                                              // the method returns number of bytes read
+
+    int cl_write(const byte_vector_t val = byte_vector_t()); // if val.size() == 0 return allowed number of bytes in Tx-buffer
+
+    int cl_exec(const byte_vector_t command, byte_vector_t &response, const long timeout = 500);  // execute 'command' and
+                                                                                           // return 'response'
+                                                                                           // 'timeout' is a timeout in millisecs
+                                                                                           // between cl_write an cl_read commands
+    int cl_exec(const byte_vector_t command, const long timeout = 500);
+
+    byte_vector_t readRegisters(const byte_vector_t addr, const byte_vector_t addr_comm = byte_vector_t());
+    void writeRegisters(const byte_vector_t addr, const byte_vector_t values);
+
+    bool resetMicro(const long timeout = 10000); // timeout in microsecs
+    bool resetFPGA(const long timeout = 10000);  // timeout in microsecs
+
+    void setSystemState(bool check_sum_mode_enabled,
+                        bool comm_ack_enabled,
+                        bool hold_fpga_in_reset,  // if true then bit will be set set 0!!!
+                        bool fpga_eprom_enabled);
+
+    unsigned char getSystemState();
+
+    inline bool is_chk_sum_enabled(const unsigned char state);
+    inline bool is_ack_enabled(const unsigned char state);
+    inline bool is_fpga_boot_ok(const unsigned char state);
+    inline bool is_fpga_in_reset(const unsigned char state);   // if bit is 0 then return true!!!
+    inline bool is_fpga_eprom_enabled(const unsigned char state);
+
+    void setCtrlRegister(bool high_gain_enabled, bool reset_temp_trip, bool enable_tec);
+
+    unsigned char getCtrlRegister();
+
+    void setTriggerMode();
+    unsigned char getTriggerMode();
+
+    inline bool is_high_gain_enabled(const unsigned char state);
+    inline bool is_reset_temp_trip(const unsigned char state);
+    inline bool is_tec_enabled(const unsigned char state);
+
+    void getManufactureData();
+
+    std::string _buildDate, _buildCode, _FPGAVersion, _microVersion;
+    EagleCamera::IntegerType _serialNumber;
+    EagleCamera::IntegerType _ADC_Calib[2];
+    EagleCamera::IntegerType _DAC_Calib[2];
 
 
+            /*  setters and getters for camera features   */
 
+    void setXBIN(const EagleCamera::IntegerType val);
+    EagleCamera::IntegerType getXBIN();
+
+    void setYBIN(const EagleCamera::IntegerType val);
+    EagleCamera::IntegerType getYBIN();
+
+    void setROILeft(const EagleCamera::IntegerType val);
+    EagleCamera::IntegerType getROILeft();
+
+    void setROITop(const EagleCamera::IntegerType val);
+    EagleCamera::IntegerType getROITop();
+
+    void setROIWidth(const EagleCamera::IntegerType val);
+    EagleCamera::IntegerType getROIWidth();
+
+    void setROIHeight(const EagleCamera::IntegerType val);
+    EagleCamera::IntegerType getROIHeight();
+
+    void setExpTime(const double val);
+    double getExpTime();
+
+    void setFrameRate(const double val);
+    double getFrameate();
+
+    void setShutterOpenDelay(const double val);
+    double getShutterOpenDelay();
+
+    void setShutterCloseDelay(const double val);
+    double getShutterCloseDelay();
+
+    void setTEC_SetPoint(const double val);
+    double getTEC_SetPoint();
+
+    void setShutterState(const std::string val);
+    std::string getShutterState();
+
+    void setTECState(const std::string val);
+    std::string getTECState();
+
+    void setPreAmpGain(const std::string val);
+    std::string getPreAmpGain();
+
+    void setReadoutRate(const std::string val);
+    std::string getReadoutRate();
+
+    void setReadoutMode(const std::string val);
+    std::string getReadoutMode();
+
+    double getCCDTemp();
+    double getPCBTemp();
+
+    EagleCamera::IntegerType getADC_CALIB_0();
+    EagleCamera::IntegerType getADC_CALIB_1();
+
+    EagleCamera::IntegerType getDAC_CALIB_0();
+    EagleCamera::IntegerType getDAC_CALIB_1();
+
+    EagleCamera::IntegerType getSerialNumber();
+
+    std::string getBuildDate();
+    std::string getBuildCode();
+
+    std::string getFPGAVersion();
+    std::string getMicroVersion();
+
+
+        /*  auxiliary methods  */
+
+    std::stringstream logMessageStream;
+
+    // format logging message for call of XCLIB functions
+    // (the first argument is XCLIB function name, others - its arguments)
+    template<typename... T>
+    void formatLogMessage(const char* func_name, T... args);
+
+    // helper methods for logging
+    template<typename T1, typename... T2>
+    inline void logHelper(T1 first, T2... last);
+
+    template<typename T>
+    inline void logHelper(T arg);
+
+    inline void logHelper(const std::string &str);
+    inline void logHelper(const char* str);
+
+    // add to logging string (see formatLogMessage) return value of XCLIB functions in form "-> ret_val"
+    inline std::string logXCLIB_Info(const std::string & str, const int result);
+
+    // add to logging string (see formatLogMessage) return value of XCLIB functions in form "-> [...]"
+    // for pxd_serialRead it return bytes read from Rx-buffer
+    std::string logXCLIB_Info(const std::string & str, const char *res, const int res_len);
 
         /*  static members and methods  */
 

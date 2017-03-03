@@ -97,7 +97,7 @@ EagleCamera::camera_feature_map_t INIT_CAMERA_FEATURES()
             new EagleCamera::CameraFeature<EagleCamera::IntegerType>( "DAC_CALIB_0",
                     EagleCamera::ReadOnly, {}) );
 
-    features["DAD_CALIB_1"] = std::unique_ptr<EagleCamera::CameraAbstractFeature>(
+    features["DAC_CALIB_1"] = std::unique_ptr<EagleCamera::CameraAbstractFeature>(
             new EagleCamera::CameraFeature<EagleCamera::IntegerType>( "DAC_CALIB_1",
                     EagleCamera::ReadOnly, {}) );
 
