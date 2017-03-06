@@ -76,6 +76,7 @@ EagleCamera::CameraFeatureProxy::operator EagleCamera_StringFeature()
 
     sf._name = _camera->currentCameraFeature->name();
     sf._value = f->get();
+    sf._range = f->range();
 
     return sf;
 }
@@ -100,6 +101,15 @@ EagleCamera::CameraFeatureProxy & EagleCamera::CameraFeatureProxy::operator = (c
     EagleCamera::CameraFeature<std::string> *f = static_cast<EagleCamera::CameraFeature<std::string> *>
                                                             (_camera->currentCameraFeature);
 
+    // check for valid value
+    auto it = f->range().begin();
+    for ( ; it != f->range().end(); ++it ) {
+        if ( !val.compare(*it) ) break;
+    }
+    if ( it == f->range().end() ) {
+        throw EagleCameraException(0,EagleCamera::Error_InvalidFeatureValue, "Invalid value for String Feature!");
+    }
+
     f->set(val);
 
     return *this;
@@ -121,7 +131,7 @@ EagleCamera::CameraFeatureProxy & EagleCamera::CameraFeatureProxy::operator = (c
                     * ****************************************/
 
 EagleCamera_StringFeature::EagleCamera_StringFeature():
-    _name(), _value()
+    _name(), _value(), _range()
 {
 }
 
@@ -131,11 +141,12 @@ EagleCamera_StringFeature::EagleCamera_StringFeature(EagleCamera_StringFeature &
 {
     swap(_name,other._name);
     swap(_value,other._value);
+    swap(_range,other._range);
 }
 
 
 EagleCamera_StringFeature::EagleCamera_StringFeature(const EagleCamera_StringFeature &other):
-    _name(other._name), _value(other._value)
+    _name(other._name), _value(other._value), _range(other._range)
 {
 
 }
@@ -163,6 +174,7 @@ EagleCamera_StringFeature::EagleCamera_StringFeature(EagleCamera::CameraFeatureP
 
     _name = f->name();
     _value = f->get();
+    _range = f->range();
 }
 
 
@@ -178,10 +190,17 @@ std::string EagleCamera_StringFeature::value() const
 }
 
 
+std::vector<std::string> EagleCamera_StringFeature::range() const
+{
+    return _range;
+}
+
+
 EagleCamera_StringFeature &EagleCamera_StringFeature::operator =(EagleCamera_StringFeature other)
 {
     swap(_name,other._name);
     swap(_value,other._value);
+    swap(_range,other._range);
 
     return *this;
 }

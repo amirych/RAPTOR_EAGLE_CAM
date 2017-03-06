@@ -1,4 +1,5 @@
 ﻿#include "eagle_camera.h"
+#include <eagle_camera_config.h>
 
 #include <xcliball.h>
 #include <cameralink_defs.h>
@@ -69,10 +70,9 @@ static std::string pointer_to_str(void* ptr)
 
                 /*  INIT STATIC PREDEFINED FEATURES MAP  */
 
-extern EagleCamera::camera_feature_map_t INIT_CAMERA_FEATURES();
+//extern EagleCamera::camera_feature_map_t INIT_CAMERA_FEATURES();
 
-EagleCamera::camera_feature_map_t EagleCamera::PREDEFINED_CAMERA_FEATURES = INIT_CAMERA_FEATURES();
-//EagleCamera::camera_feature_map_t EagleCamera::PREDEFINED_CAMERA_FEATURES;
+//EagleCamera::camera_feature_map_t EagleCamera::PREDEFINED_CAMERA_FEATURES = INIT_CAMERA_FEATURES();
 
 size_t EagleCamera::createdObjects = 0;
 
@@ -82,13 +82,14 @@ EagleCamera::EagleCamera(const char *epix_video_fmt_filename):
     cameraVideoFormatFilename(""),
     cameraUnitmap(-1),
     logLevel(EagleCamera::LOG_LEVEL_VERBOSE), cameraLog(nullptr),
-    cameraFeature(this), currentCameraFeature(nullptr),
     CL_ACK_BIT_ENABLED(CL_DEFAULT_ACK_ENABLED), CL_CHK_SUM_BIT_ENABLED(CL_DEFAULT_CK_SUM_ENABLED),
     _serialNumber(0), _buildDate(), _buildCode(),
     _microVersion(), _FPGAVersion(),
     _ADC_Calib(), ADC_LinearCoeffs(),
     _DAC_Calib(), DAC_LinearCoeffs(),
-    PREDEFINED_CAMERA_COMMANDS()
+    PREDEFINED_CAMERA_FEATURES(),
+    PREDEFINED_CAMERA_COMMANDS(),
+    cameraFeature(this), currentCameraFeature(nullptr)
 {
     if ( !createdObjects ) {
         if ( epix_video_fmt_filename != nullptr ) {
@@ -103,6 +104,7 @@ EagleCamera::EagleCamera(const char *epix_video_fmt_filename):
 
     ++createdObjects;
 
+    InitCameraFeatures();
     InitCameraCommands();
 
     setLogLevel(logLevel);
@@ -148,23 +150,124 @@ EagleCamera::EagleCameraLogLevel EagleCamera::getLogLevel() const
 }
 
 
-void EagleCamera::initCamera(const int unitmap, const std::ostream *log_file)
+void EagleCamera::initCamera(const int unitmap, std::ostream *log_file)
 {
-    std::cout << "CAMERA: initCamera(" << std::to_string(unitmap) << ", " << log_file << ")\n";
+    std::string log_str;
 
-    formatLogMessage("pxd_serialConfigure",0,CL_DEFAULT_BAUD_RATE,CL_DEFAULT_DATA_BITS,0,CL_DEFAULT_STOP_BIT,0,0,0);
-    XCLIB_API_CALL( pxd_serialConfigure(cameraUnitmap,0,CL_DEFAULT_BAUD_RATE,CL_DEFAULT_DATA_BITS,0,CL_DEFAULT_STOP_BIT,0,0,0),
-                    logMessageStream.str());
+    cameraLog = log_file;
 
-    if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
-        logToFile(EagleCamera::LOG_IDENT_XCLIB_INFO, logMessageStream.str());
+
+
+    // print logging header (ignore logLevel!)
+    if ( cameraLog ) {
+        for (int i = 0; i < 5; ++i) *cameraLog << std::endl;
+        std::string line;
+        line.resize(89,'*');
+        *cameraLog << line << std::endl;
+        *cameraLog << "   " << time_stamp() << std::endl;
+        *cameraLog << "   'EAGLE CAMERA' v. " << EAGLE_CAMERA_VERSION_MAJOR << "." << EAGLE_CAMERA_VERSION_MINOR <<
+                      " CONTROL SOFTWARE FOR RAPTOR PHOTONICS EAGLE-V 4240 CCD CAMERA" << std::endl;
+        *cameraLog << line << std::endl;
+        *cameraLog << std::endl << std::flush;
     }
 
-    resetFPGA();
+    logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "INITIALIZATION OF CCD CAMERA ...");
+    logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "Try to configure CameraLink serial connection ...", 1);
 
-    getManufactureData();
+    try {
+        if ( unitmap <= 0 ) {
+            log_str = "Unitmap must be greater than 0! (trying to set to " + std::to_string(unitmap) + ")";
+            throw EagleCameraException(0,EagleCamera::Error_InvalidUnitmap, log_str);
+        }
+
+        cameraUnitmap = unitmap;
+
+        formatLogMessage("pxd_serialConfigure",0,CL_DEFAULT_BAUD_RATE,CL_DEFAULT_DATA_BITS,0,CL_DEFAULT_STOP_BIT,0,0,0);
+        XCLIB_API_CALL( pxd_serialConfigure(cameraUnitmap,0,CL_DEFAULT_BAUD_RATE,CL_DEFAULT_DATA_BITS,0,CL_DEFAULT_STOP_BIT,0,0,0),
+                        logMessageStream.str());
+
+        if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
+            logToFile(EagleCamera::LOG_IDENT_XCLIB_INFO, logMessageStream.str());
+        }
+
+        logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "Try to reset FPGA ...", 1);
+        resetFPGA();
+
+        logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "Try to get manufacturer data ...", 1);
+        getManufactureData();
+
+        int ntab = 3;
+
+        logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "Found Raptor CCD camera: ", 1);
+        log_str = "Serial number: " + std::to_string(_serialNumber);
+        logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, log_str, ntab);
+        logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "Build date (DD/MM/YY): " + _buildDate, ntab);
+        logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "Build code: " + _buildCode, ntab);
+        logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "Micro version: " + _microVersion, ntab);
+        logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "FPGA version: " + _FPGAVersion, ntab);
+
+
+
+        // get framebuffer dimensions
+
+        log_str = "pxd_imageYdim()";
+        XCLIB_API_CALL( _ccdDimension[0] = pxd_imageXdim(), log_str );
+        log_str = "pxd_imageYdim()";
+        XCLIB_API_CALL( _ccdDimension[1] = pxd_imageYdim(), log_str );
+        log_str = "pxd_imageBdim()";
+        XCLIB_API_CALL( _bitsPerPixel = pxd_imageBdim(), log_str ); // Eagle-V is non-color camera. do not read number of colors
+//        log_str = "pxd_imageCdim()";
+//        XCLIB_API_CALL( cc = pxd_imageCdim(), log_str );
+
+        log_str = "pxd_imageZdim()";
+        XCLIB_API_CALL( _frameBuffersNumber = pxd_imageZdim(), log_str);
+
+        logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "CCD dimensions: [" +
+                  std::to_string(_ccdDimension[0]) + ", " + std::to_string(_ccdDimension[1]) + "] pixels", ntab);
+        logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "CCD bits per pixel: " + std::to_string(_bitsPerPixel), ntab);
+        logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "Number of frame buffers: " + std::to_string(_frameBuffersNumber), ntab);
+
+        logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "Set initial camera configuration ...", 1);
+
+        setInitialState();
+
+    } catch ( EagleCameraException &ex ) {
+        logToFile(ex);
+        logToFile(EagleCamera::LOG_IDENT_CAMERA_ERROR, "CANNOT INITIALIZE CAMERA");
+        return;
+    }
+
+    logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "INITIALIZATION COMPLETED SUCCESSFULLY");
 }
 
+
+void EagleCamera::setInitialState()
+{
+    setTriggerMode(false, false, false, false, false, false); // IDLE mode
+    setCtrlRegister(true, false, true); // gain to HIGH, TEC is ON
+
+    setXBIN(1);
+    setYBIN(1);
+    setROIWidth(_ccdDimension[0]);
+    setROIHeight(_ccdDimension[1]);
+
+    setReadoutRate("SLOW");
+    setReadoutMode("NORMAL");
+
+    // set initial upper range for CCD geometry
+
+    CameraFeature<IntegerType> *f = static_cast<CameraFeature<IntegerType> *>( PREDEFINED_CAMERA_FEATURES["ROILeft"].get());
+    f->set_range({1,_ccdDimension[0]});
+
+    f = static_cast<CameraFeature<IntegerType> *>( PREDEFINED_CAMERA_FEATURES["ROITop"].get());
+    f->set_range({1,_ccdDimension[1]});
+
+    f = static_cast<CameraFeature<IntegerType> *>( PREDEFINED_CAMERA_FEATURES["ROIWidth"].get());
+    f->set_range({1,_ccdDimension[0]});
+
+    f = static_cast<CameraFeature<IntegerType> *>( PREDEFINED_CAMERA_FEATURES["ROIHeight"].get());
+    f->set_range({1,_ccdDimension[1]});
+}
 
 void EagleCamera::resetCamera()
 {
@@ -195,6 +298,9 @@ EagleCamera::CameraFeatureProxy & EagleCamera::operator [](const std::string & n
     if ( search != PREDEFINED_CAMERA_FEATURES.end() ) {
 //        currentCameraFeature = (PREDEFINED_CAMERA_FEATURES[name]).get();
         currentCameraFeature = (search->second).get();
+//        std::cout << "[] access = " << currentCameraFeature->access() << "\n";
+//        std::cout << "[] name = " << currentCameraFeature->name() << "\n";
+//        std::cout << "[] type = " << currentCameraFeature->type() << "\n";
     } else {
         currentCameraFeature = nullptr;
         std::string log_str = "'" + name + "' is unknown camera feature!";
@@ -207,7 +313,7 @@ EagleCamera::CameraFeatureProxy & EagleCamera::operator [](const std::string & n
 
 EagleCamera::CameraFeatureProxy & EagleCamera::operator[](const char* name)
 {
-    operator [](std::string(name));
+    return operator [](std::string(name));
 }
 
 
@@ -270,7 +376,7 @@ void EagleCamera::logToFile(const EagleCameraException &ex, const int indent_tab
 
                             /*  PROTECTED METHODS  */
 
-    // CAMERALINK serial port related methods
+// CAMERALINK serial port related methods
 
 int EagleCamera::cl_read(byte_vector_t &data,  const bool all)
 {
@@ -305,7 +411,7 @@ int EagleCamera::cl_read(byte_vector_t &data,  const bool all)
     buff = std::unique_ptr<char[]>(new char[nbytes]);
     buff_ptr = buff.get();
 
-    formatLogMessage("pxd_serialRead", 0, buff_ptr, nbytes);
+    formatLogMessage("pxd_serialRead", 0, (void*)buff_ptr, nbytes);
     XCLIB_API_CALL( pxd_serialRead(cameraUnitmap, 0, buff_ptr, nbytes), logMessageStream.str() );
     if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
         logToFile(EagleCamera::LOG_IDENT_XCLIB_INFO, logXCLIB_Info(logMessageStream.str(),buff_ptr,nbytes));
@@ -340,7 +446,7 @@ int EagleCamera::cl_write(const byte_vector_t val)
     } else {
         int N;
 
-        formatLogMessage("pxd_serialWrite",0,val.data(),val.size());
+        formatLogMessage("pxd_serialWrite",0,(void*)val.data(),val.size());
         XCLIB_API_CALL( nbytes = pxd_serialWrite(cameraUnitmap, 0, (char*)val.data(), val.size()), logMessageStream.str() );
 
         if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
@@ -350,7 +456,7 @@ int EagleCamera::cl_write(const byte_vector_t val)
         // write mandatory End-of-Transmision byte
         char ack = CL_ETX;
 
-        formatLogMessage("pxd_serialWrite",0,&ack,1);
+        formatLogMessage("pxd_serialWrite",0,(void*)&ack,1);
         XCLIB_API_CALL( N = pxd_serialWrite(cameraUnitmap, 0, &ack, 1), logMessageStream.str() );
 
         if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
@@ -364,7 +470,7 @@ int EagleCamera::cl_write(const byte_vector_t val)
             for ( int i = 1; i < val.size(); ++i ) sum ^= val[i];
             sum ^= CL_ETX;
 
-            formatLogMessage("pxd_serialWrite",0,&sum,1);
+            formatLogMessage("pxd_serialWrite",0,(void*)&sum,1);
             XCLIB_API_CALL( N = pxd_serialWrite(cameraUnitmap, 0, &sum, 1), logMessageStream.str() );
 
             if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
@@ -517,6 +623,82 @@ unsigned char EagleCamera::getCtrlRegister()
 }
 
 
+bool EagleCamera::is_high_gain_enabled(const unsigned char state)
+{
+    return !(state & CL_FPGA_CTRL_REG_HIGH_GAIN);
+}
+
+
+bool EagleCamera::is_reset_temp_trip(const unsigned char state)
+{
+    return state & CL_FPGA_CTRL_REG_TMP_TRIP_RST;
+}
+
+
+bool EagleCamera::is_tec_enabled(const unsigned char state)
+{
+    return state & CL_FPGA_CTRL_REG_ENABLE_TEC;
+}
+
+
+void EagleCamera::setTriggerMode(bool snapshot, bool enable_fixed_frame_rate, bool start_cont_seq,
+                                 bool abort_exp, bool enable_extern_trigger, bool enable_rising_edge)
+{
+    unsigned char mode = 0;
+
+    if ( snapshot ) mode |= CL_TRIGGER_MODE_SNAPSHOT;
+    if ( enable_fixed_frame_rate ) mode |= CL_TRIGGER_MODE_FIXED_FRAME_RATE;
+    if ( start_cont_seq ) mode |= CL_TRIGGER_MODE_CONTINUOUS_SEQ;
+    if ( abort_exp ) mode |= CL_TRIGGER_MODE_ABORT_CURRENT_EXP;
+    if ( enable_extern_trigger ) mode |= CL_TRIGGER_MODE_EXT_TRIGGER;
+    if ( enable_rising_edge ) mode |= CL_TRIGGER_MODE_ENABLE_RISING_EDGE;
+
+    byte_vector_t comm = CL_COMMAND_WRITE_VALUE;
+    comm[3] = 0xD4;
+    comm[4] = mode;
+
+    cl_exec(comm);
+}
+
+
+unsigned char EagleCamera::getTriggerMode()
+{
+    byte_vector_t addr_comm = CL_COMMAND_SET_ADDRESS;
+    byte_vector_t comm = CL_COMMAND_READ_VALUE;
+    byte_vector_t val(1);
+
+    addr_comm[3] = 0xD4;
+
+    cl_exec(addr_comm);
+    cl_exec(comm,val);
+
+    return val[0];
+}
+
+
+bool EagleCamera::is_fixed_frame_rate(unsigned char mode)
+{
+    return mode & CL_TRIGGER_MODE_FIXED_FRAME_RATE;
+}
+
+
+bool EagleCamera::is_cont_seq(unsigned char mode)
+{
+    return mode & CL_TRIGGER_MODE_CONTINUOUS_SEQ;
+}
+
+
+bool EagleCamera::is_ext_trigger(unsigned char mode)
+{
+    return mode & CL_TRIGGER_MODE_EXT_TRIGGER;
+}
+
+
+bool EagleCamera::is_rising_edge(unsigned char mode)
+{
+    return mode & CL_TRIGGER_MODE_ENABLE_RISING_EDGE;
+}
+
 bool EagleCamera::resetMicro(const long timeout)
 {
     byte_vector_t comm = {0x55, 0x99, 0x66, 0x11};
@@ -588,12 +770,17 @@ bool EagleCamera::resetFPGA(const long timeout)
 
 void EagleCamera::getManufactureData()
 {
+    unsigned char state = getSystemState();
+    setSystemState(is_chk_sum_enabled(state), is_ack_enabled(state), is_fpga_in_reset(state), true);
+
     byte_vector_t comm = CL_COMMAND_GET_MANUFACTURER_DATA_1;
     cl_exec(comm);
 
     comm = CL_COMMAND_GET_MANUFACTURER_DATA_2;
     byte_vector_t value(18);
     cl_exec(comm,value);
+
+    setSystemState(is_chk_sum_enabled(state), is_ack_enabled(state), is_fpga_in_reset(state), false);
 
     _serialNumber = (value[0] << 8) + value[1];
 
@@ -617,7 +804,80 @@ void EagleCamera::getManufactureData()
     // DAC(counts) = DAC_LinearCoeffs[0] + DAC_LinearCoeffs[1]*temp
     DAC_LinearCoeffs[1] = (_DAC_Calib[1] - _DAC_Calib[0])/(DAC_CALIBRATION_POINT_2 - DAC_CALIBRATION_POINT_1);
     DAC_LinearCoeffs[0] = _DAC_Calib[0] - DAC_LinearCoeffs[1]*DAC_CALIBRATION_POINT_1;
+
+
+    // get microcontroller version
+
+    comm = {0x56};
+
+    byte_vector_t val(2);
+
+    cl_exec(comm,val);
+
+    _microVersion = std::to_string(val[0]) + "." + std::to_string(val[1]);
+
+
+    // get FPGA version
+
+    byte_vector_t addr = {0x7E, 0x7F};
+
+    val = readRegisters(addr);
+
+    _FPGAVersion = std::to_string(val[0]) + "." + std::to_string(val[1]);
 }
+
+
+// convert 5-bytes (40 bit) FPGA registers values to number of counts
+EagleCamera::IntegerType EagleCamera::fpga40BitsToCounts(const byte_vector_t &vals)
+{
+    int64_t counts = 0;
+
+    counts |= vals[0];
+    for ( int i = 1; i < 5 ; ++i ) {
+        counts <<= 8;
+        counts |= vals[i];
+    }
+
+    return counts;
+}
+
+
+// convert number of counts to 5-bytes (40 bit) FPGA registers values
+EagleCamera::byte_vector_t EagleCamera::countsToFPGA40Bits(const EagleCamera::IntegerType counts)
+{
+    size_t N = 5;
+    byte_vector_t value(N);
+    int64_t cnts = counts;
+
+    for ( size_t i = 1; i <= N ; ++i ) {
+        value[N-i] = (cnts & 0xFF);
+        cnts >>= 8;
+    }
+
+    return value;
+}
+
+
+EagleCamera::IntegerType EagleCamera::fpga16BitsToInteger(const byte_vector_t &vals)
+{
+    IntegerType v = 0;
+
+    v = ((vals[0] & 0x0F) << 8) + vals[1];
+
+    return v;
+}
+
+
+EagleCamera::byte_vector_t EagleCamera::integerToFPGA12Bits(const EagleCamera::IntegerType val)
+{
+    byte_vector_t value(2);
+
+    value[0] = (val & 0x0F00) >> 8; // MM
+    value[1] = val & 0xFF;          // LL
+
+    return value;
+}
+
 
 
 EagleCamera::IntegerType EagleCamera::getSerialNumber()
@@ -695,6 +955,12 @@ void EagleCamera::logHelper(const std::string &str)
 }
 
 
+void EagleCamera::logHelper(const void *addr)
+{
+    logMessageStream << std::hex << addr << std::dec;
+}
+
+
 inline std::string EagleCamera::logXCLIB_Info(const std::string &str, const int result)
 {
     return str + " -> " + std::to_string(result);
@@ -709,43 +975,13 @@ std::string EagleCamera::logXCLIB_Info(const std::string &str, const char *res, 
     if ( res_len <= 0 )  return str + " -> []";
 
     ss << " -> [" << std::hex << (int)res[0] << std::dec;
-    for ( int i = 1; i < res_len; +i ) ss << ", " << std::hex << (int)res[i] << std::dec;
+    for ( int i = 1; i < res_len; ++i ) ss << ", " << std::hex << ((uint16_t)res[i] & 0x00FF) << std::dec;
     ss << "]";
 
     return str + ss.str();
 }
 
 
-
-
-
-
-
-
-
-
-void EagleCamera::InitCameraCommands()
-{
-    PREDEFINED_CAMERA_COMMANDS["INIT"] = std::unique_ptr<CameraAbstractCommand>(
-                new CameraCommand<int, std::ostream*>( "INIT",
-                                 std::bind(static_cast<void(EagleCamera::*)(const int, const std::ostream*)>
-                                 (&EagleCamera::initCamera), this, std::placeholders::_1, std::placeholders::_2))
-                                                                               );
-    PREDEFINED_CAMERA_COMMANDS["RESET"] = std::unique_ptr<CameraAbstractCommand>(
-                new CameraCommand<>( "RESET", std::bind(static_cast<void(EagleCamera::*)()>
-                                 (&EagleCamera::resetCamera), this)) );
-
-
-    PREDEFINED_CAMERA_COMMANDS["EXPSTART"] = std::unique_ptr<CameraAbstractCommand>(
-                new CameraCommand<>( "EXPSTART", std::bind(static_cast<void(EagleCamera::*)()>
-                                 (&EagleCamera::startAcquisition), this)) );
-
-
-    PREDEFINED_CAMERA_COMMANDS["EXPSTOP"] = std::unique_ptr<CameraAbstractCommand>(
-                new CameraCommand<>( "EXPSTOP", std::bind(static_cast<void(EagleCamera::*)()>
-                                 (&EagleCamera::stopAcquisition), this)) );
-
-}
 
 
 

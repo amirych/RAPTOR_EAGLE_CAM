@@ -71,8 +71,11 @@ public:
     enum EagleCameraFeatureAccess {UnknownAccess = -1, ReadWrite, ReadOnly, WriteOnly};
 
     enum EagleCameraError { Error_Uninitialized = std::numeric_limits<int>::min(),
-                            Error_NullPointer, Error_UnknowCommand,
-                            Error_UnknowFeature, Error_ReadOnlyFeature, Error_WriteOnlyFeature,
+                            Error_NullPointer, Error_InvalidUnitmap,
+                            Error_UnknowCommand, Error_UnknowFeature,
+                            Error_ReadOnlyFeature, Error_WriteOnlyFeature,
+                            Error_FeatureValueIsOutOfRange, Error_InvalidFeatureValue,
+                            Error_UnexpectedFPGAValue,
                             Error_OK = 0,
                             // errors from EAGLE V 4240 Instruction Manual
                             Error_ETX_SER_TIMEOUT = 0x51, Error_ETX_CK_SUM_ERR,
@@ -85,7 +88,7 @@ public:
                               LOG_IDENT_XCLIB_INFO, LOG_IDENT_XCLIB_ERROR};
 
 
-    void initCamera(const int unitmap = 1, const std::ostream *log_file = nullptr);
+    void initCamera(const int unitmap = 1, std::ostream *log_file = nullptr);
 
     void resetCamera();
 
@@ -161,6 +164,10 @@ protected:
             return _range;
         }
 
+        void set_range(const std::vector<T> &r) {
+            _range = r;
+        }
+
     private:
         std::function<T()> _getter;
         std::function<void(const T)> _setter;
@@ -233,20 +240,29 @@ protected:
                         _camera->currentCameraFeature->name() + "'!";
                 throw EagleCameraException(0,EagleCamera::Error_ReadOnlyFeature,log_str);
             }
-           switch ( _camera->currentCameraFeature->type() ) {
-               case EagleCameraFeatureType::IntType: {
-                   CameraFeature<EagleCamera::IntegerType> *f =
-                           static_cast<CameraFeature<EagleCamera::IntegerType> *>(_camera->currentCameraFeature);
-                   f->set(val);
-                   break;
-               }
-               case EagleCameraFeatureType::FloatType: {
-                   CameraFeature<double> *f = static_cast<CameraFeature<double> *>(_camera->currentCameraFeature);
-                   f->set(val);
-                   break;
-               }
-           }
-           return *this;
+            switch ( _camera->currentCameraFeature->type() ) {
+                case EagleCameraFeatureType::IntType: {
+                    CameraFeature<EagleCamera::IntegerType> *f =
+                            static_cast<CameraFeature<EagleCamera::IntegerType> *>(_camera->currentCameraFeature);
+                    if ( (val < f->range()[0]) || (val > f->range()[1]) ) {
+                        throw EagleCameraException(0,EagleCamera::Error_FeatureValueIsOutOfRange,
+                                                   "User value for Integer feature is out of valid range!");
+                    }
+                    f->set(val);
+                    break;
+                }
+                case EagleCameraFeatureType::FloatType: {
+                    CameraFeature<double> *f = static_cast<CameraFeature<double> *>(_camera->currentCameraFeature);
+//                    printf("RANGE: [%f %f], set val: %f\n",f->range()[0], f->range()[1], val);
+                    if ( (val < f->range()[0]) || (val > f->range()[1]) ) {
+                        throw EagleCameraException(0,EagleCamera::Error_FeatureValueIsOutOfRange,
+                                                   "User value for FloatingPoint feature is out of valid range!");
+                    }
+                    f->set(val);
+                    break;
+                }
+            }
+            return *this;
         }
 
         CameraFeatureProxy & operator = (const char* val);           // for string feature
@@ -341,18 +357,25 @@ protected:
     std::string cameraVideoFormatFilename;
 
     EagleCamera::EagleCameraLogLevel logLevel;
-    std::ostream *cameraLog;
+    std::ostream* cameraLog;
+
+    IntegerType _ccdDimension[2];
+    IntegerType _bitsPerPixel;
+    IntegerType _frameBuffersNumber;
 
     double ADC_LinearCoeffs[2];
     double DAC_LinearCoeffs[2];
 
+    void setInitialState();
 
         /*  feauture control members  */
 
     CameraFeatureProxy cameraFeature;
     CameraAbstractFeature *currentCameraFeature;
 
-    static camera_feature_map_t PREDEFINED_CAMERA_FEATURES;
+//    static camera_feature_map_t PREDEFINED_CAMERA_FEATURES;
+    camera_feature_map_t PREDEFINED_CAMERA_FEATURES;
+    void InitCameraFeatures();
 
         /*  command control members  */
 
@@ -380,7 +403,7 @@ protected:
                                                                                            // return 'response'
                                                                                            // 'timeout' is a timeout in millisecs
                                                                                            // between cl_write an cl_read commands
-    int cl_exec(const byte_vector_t command, const long timeout = 500);
+    int cl_exec(const byte_vector_t command, const long timeout = 10);
 
     byte_vector_t readRegisters(const byte_vector_t addr, const byte_vector_t addr_comm = byte_vector_t());
     void writeRegisters(const byte_vector_t addr, const byte_vector_t values);
@@ -405,12 +428,19 @@ protected:
 
     unsigned char getCtrlRegister();
 
-    void setTriggerMode();
+    bool is_high_gain_enabled(const unsigned char state);
+    bool is_reset_temp_trip(const unsigned char state);
+    bool is_tec_enabled(const unsigned char state);
+
+    void setTriggerMode(bool snapshot, bool enable_fixed_frame_rate, bool start_cont_seq,
+                        bool abort_exp, bool enable_extern_trigger, bool enable_rising_edge);
+
     unsigned char getTriggerMode();
 
-    inline bool is_high_gain_enabled(const unsigned char state);
-    inline bool is_reset_temp_trip(const unsigned char state);
-    inline bool is_tec_enabled(const unsigned char state);
+    bool is_fixed_frame_rate(unsigned char mode);
+    bool is_cont_seq(unsigned char mode);
+    bool is_ext_trigger(unsigned char mode);
+    bool is_rising_edge(unsigned char mode);
 
     void getManufactureData();
 
@@ -421,6 +451,11 @@ protected:
 
 
             /*  setters and getters for camera features   */
+
+    enum GeometryValueName {GV_XBIN, GV_YBIN, GV_ROILEFT, GV_ROITOP, GV_ROIWIDTH, GV_ROIHEIGHT};
+
+    void setGeometryValue(const EagleCamera::GeometryValueName name, const EagleCamera::IntegerType val);
+    EagleCamera::IntegerType getGeometryValue(const EagleCamera::GeometryValueName name);
 
     void setXBIN(const EagleCamera::IntegerType val);
     EagleCamera::IntegerType getXBIN();
@@ -444,7 +479,7 @@ protected:
     double getExpTime();
 
     void setFrameRate(const double val);
-    double getFrameate();
+    double getFrameRate();
 
     void setShutterOpenDelay(const double val);
     double getShutterOpenDelay();
@@ -452,7 +487,7 @@ protected:
     void setShutterCloseDelay(const double val);
     double getShutterCloseDelay();
 
-    void setTEC_SetPoint(const double val);
+    void setTEC_SetPoint(const double temp);
     double getTEC_SetPoint();
 
     void setShutterState(const std::string val);
@@ -506,6 +541,7 @@ protected:
 
     inline void logHelper(const std::string &str);
     inline void logHelper(const char* str);
+    inline void logHelper(const void* addr);
 
     // add to logging string (see formatLogMessage) return value of XCLIB functions in form "-> ret_val"
     inline std::string logXCLIB_Info(const std::string & str, const int result);
@@ -513,6 +549,14 @@ protected:
     // add to logging string (see formatLogMessage) return value of XCLIB functions in form "-> [...]"
     // for pxd_serialRead it return bytes read from Rx-buffer
     std::string logXCLIB_Info(const std::string & str, const char *res, const int res_len);
+
+
+    EagleCamera::IntegerType fpga40BitsToCounts(const byte_vector_t &vals);
+    byte_vector_t countsToFPGA40Bits(const EagleCamera::IntegerType counts);
+
+    EagleCamera::IntegerType fpga16BitsToInteger(const byte_vector_t &vals);
+    byte_vector_t integerToFPGA12Bits(const EagleCamera::IntegerType val);
+
 
         /*  static members and methods  */
 
@@ -535,10 +579,13 @@ public:
 
     std::string value() const;
     std::string name() const;
+    std::vector<std::string> range() const;
+
 
 private:
     std::string _name;
     std::string _value;
+    std::vector<std::string> _range;
 };
 
 

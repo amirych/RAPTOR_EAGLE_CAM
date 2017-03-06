@@ -19,6 +19,12 @@ endif()
 set (EAGLE_CAMERA_VERSION_MAJOR 0)
 set (EAGLE_CAMERA_VERSION_MINOR 1)
 
+configure_file (
+  "camera/eagle_camera_config.h.in"
+  "${CMAKE_CURRENT_SOURCE_DIR}/camera/eagle_camera_config.h"
+  #  "${PROJECT_BINARY_DIR}/eagle_camera_config.h"
+)
+
 # API library
 set(EAGLE_CAMERA_LIB eagle_camera)
 include_directories(./camera ${XCLIB_INCLUDE_DIR})

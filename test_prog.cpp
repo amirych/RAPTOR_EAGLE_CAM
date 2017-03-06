@@ -6,7 +6,9 @@ using namespace std;
 
 int main(int argc, char* argv[])
 {
-    EagleCamera cam;
+    try {
+    EagleCamera cam("/home/timur/raptor_eagle-v.fmt");
+    if ( argc > 1 ) cam.setLogLevel(EagleCamera::LOG_LEVEL_ERROR);
 
 //    cam("INIT", 23, nullptr);
 
@@ -14,6 +16,13 @@ int main(int argc, char* argv[])
 
 //    cout << cam.getSerialNumber() << "\n";
 //    cout << cam.getBuildDate() << "\n";
+
+    cam["ExposureTime"] = 17.73;
+    cout << (double)cam["ExposureTime"] << "\n";
+
+    } catch ( EagleCameraException &ex ) {
+        cout << "ERROR: " << ex.what() << "\n";
+    }
 
     return 0;
 }
