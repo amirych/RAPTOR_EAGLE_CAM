@@ -20,6 +20,12 @@ int main(int argc, char* argv[])
     cam["ExposureTime"] = 17.73;
     cout << (double)cam["ExposureTime"] << "\n";
 
+    cam["TECState"] = "OFF";
+
+    EagleCamera_StringFeature tt = cam["TECState"];
+
+    cout << tt.value() << "\n";
+
     } catch ( EagleCameraException &ex ) {
         cout << "ERROR: " << ex.what() << "\n";
     }
