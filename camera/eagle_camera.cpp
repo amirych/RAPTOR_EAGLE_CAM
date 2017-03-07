@@ -4,6 +4,7 @@
 #include <xcliball.h>
 #include <cameralink_defs.h>
 
+#include <future>
 #include <chrono>
 #include <sstream>
 #include <cstring>
@@ -81,8 +82,12 @@ size_t EagleCamera::createdObjects = 0;
 EagleCamera::EagleCamera(const char *epix_video_fmt_filename):
     cameraVideoFormatFilename(""),
     cameraUnitmap(-1),
-    logLevel(EagleCamera::LOG_LEVEL_VERBOSE), cameraLog(nullptr),
+    logLevel(EagleCamera::LOG_LEVEL_VERBOSE), cameraLog(nullptr), logMutex(),
+    logMessageStream(), logMessageStreamMutex(),
     CL_ACK_BIT_ENABLED(CL_DEFAULT_ACK_ENABLED), CL_CHK_SUM_BIT_ENABLED(CL_DEFAULT_CK_SUM_ENABLED),
+    _ccdDimension(), _bitsPerPixel(0),
+    _frameBuffersNumber(0), _frameCounts(1),
+    _imageBuffer(), _currentBufferLength(0),
     _serialNumber(0), _buildDate(), _buildCode(),
     _microVersion(), _FPGAVersion(),
     _ADC_Calib(), ADC_LinearCoeffs(),
@@ -222,6 +227,8 @@ void EagleCamera::initCamera(const int unitmap, std::ostream *log_file)
         log_str = "pxd_imageZdim()";
         XCLIB_API_CALL( _frameBuffersNumber = pxd_imageZdim(), log_str);
 
+        _imageBuffer.resize(_frameBuffersNumber);
+
         logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "CCD dimensions: [" +
                   std::to_string(_ccdDimension[0]) + ", " + std::to_string(_ccdDimension[1]) + "] pixels", ntab);
         logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "CCD bits per pixel: " + std::to_string(_bitsPerPixel), ntab);
@@ -243,7 +250,8 @@ void EagleCamera::initCamera(const int unitmap, std::ostream *log_file)
 
 void EagleCamera::setInitialState()
 {
-    setTriggerMode(false, false, false, false, false, false); // IDLE mode
+//    setTriggerMode(false, false, false, false, false, false); // IDLE mode
+    setTriggerMode(0x0);  // IDLE mode
     setCtrlRegister(true, false, true); // gain to HIGH, TEC is ON
 
     setXBIN(1);
@@ -269,19 +277,28 @@ void EagleCamera::setInitialState()
     f->set_range({1,_ccdDimension[1]});
 }
 
-void EagleCamera::resetCamera()
-{
 
+void EagleCamera::resetCamera() // full reset (microcontroller and FPGA)
+{
+    resetMicro();
+    resetFPGA();
 }
 
 
 void EagleCamera::startAcquisition()
 {
-
+    stopCapturing = false;
 }
 
 
 void EagleCamera::stopAcquisition()
+{
+    setTriggerMode(CL_TRIGGER_MODE_ABORT_CURRENT_EXP); // set abort exp bit
+    stopCapturing = true;
+}
+
+
+void EagleCamera::imageReady(const ushort *image_buffer)
 {
 
 }
@@ -324,6 +341,8 @@ void EagleCamera::logToFile(const EagleCamera::EagleCameraLogIdent ident, const 
 
     if ( logLevel == EagleCamera::LOG_LEVEL_QUIET ) return;
 
+    logMutex.lock();
+
     std::string tab;
     if ( indent_tabs > 0 ) tab.resize(indent_tabs*EAGLE_CAMERA_DEFAULT_LOG_TAB, ' ');
 
@@ -351,6 +370,8 @@ void EagleCamera::logToFile(const EagleCamera::EagleCameraLogIdent ident, const 
 
 
     *cameraLog << str << tab << log_str << std::endl << std::flush;
+
+    logMutex.unlock();
 }
 
 
@@ -375,6 +396,76 @@ void EagleCamera::logToFile(const EagleCameraException &ex, const int indent_tab
 
 
                             /*  PROTECTED METHODS  */
+
+
+// Capturing control
+
+void EagleCamera::captureImage(const double timeout) NOEXCEPT_DECL
+{
+    ulong timeout_msecs = static_cast<ulong>(1000.0*timeout);
+
+    char col[] = "Gray";
+
+    try {
+        IntegerType roi_width = (*this)["ROIWidth"];
+        IntegerType roi_height = (*this)["ROIHeight"];
+
+//        IntegerType roi_xstart = (*this)["ROILeft"]; // TODO: -1
+//        IntegerType roi_ystart = (*this)["ROITop"];
+
+        IntegerType Nelem = roi_width*roi_height;
+        size_t Nbuffs;
+        if ( Nelem != _currentBuffer ) {
+            _currentBufferLength = Nelem;
+            Nbuffs = (_frameBuffersNumber <= _frameCounts) ? _frameBuffersNumber : _frameCounts;
+            for ( size_t i = 0; i < Nbuffs; ++i ) {
+                _imageBuffer[i] = std::unique_ptr<ushort[]>(new ushort[_currentBufferLength]);
+            }
+        }
+
+        std::vector<std::future<void>> copy_buffer(Nbuffs);
+
+        _currentBuffer = 1;
+        for ( size_t i_frame = 0; i_frame < _frameCounts; ++i_frame ) {
+            ushort* buff_ptr = (_imageBuffer[_currentBuffer-1]).get();
+
+            formatLogMessage("pxd_doSnap", _currentBuffer, timeout);
+
+            XCLIB_API_CALL( pxd_doSnap(cameraUnitmap, _currentBuffer, timeout_msecs), logMessageStream.str());
+            if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
+                logToFile(EagleCamera::LOG_IDENT_XCLIB_INFO, logMeassageStream.str());
+            }
+
+            // ran asynchronously
+            IntegerType i_buff = _currentBuffer;
+            copy_buffer[_currentBuffer] = std::async(std::launch::async, [&] {
+//                std::string log_str = "pxd_readushort(" + std::to_string(cameraUnitmap) + ", 0, 0, -1, -1, " +
+//                        pointer_to_str(buff_ptr) + ", " + std::to_string(_currentBufferLength) + ", '" + col + "')";
+                formatLogMessage("pxd_readushort",i_buff, 0,0,-1,-1,(void*)buff_ptr,_currentBufferLength,col);
+                XCLIB_API_CALL( pxd_readushort(cameraUnitmap, i_buff, 0, 0, -1, -1,
+                                               buff_ptr, _currentBufferLength, col), logMessageStream.str() );
+
+                imageReady(buff_ptr); // invoke user's function to process buffer
+            });
+
+            if ( _currentBuffer < _frameBuffersNumber ) ++_currentBuffer;
+            else _currentBuffer = 1;
+
+            // wait for copy operation of previous buffer with the same ID
+            auto status = copy_buffer[_currentBuffer].wait_for(std::chrono::seconds(EAGLE_CAMERA_DEFAULT_BUFFER_TIMEOUT));
+            if ( status == std::future_status::timeout ) {
+                throw EagleCameraException(0,EagleCamera::Error_CopyBufferTimeout,
+                                           "A timeout occured while copying image buffer");
+            }
+        }
+
+    } catch ( EagleCameraException &ex ) {
+
+    } catch ( std::bad_alloc &ex ) {
+
+    }
+}
+
 
 // CAMERALINK serial port related methods
 
@@ -403,7 +494,7 @@ int EagleCamera::cl_read(byte_vector_t &data,  const bool all)
 
     if ( !all ) {
         nbytes = data.size() + info_len;
-        buff = std::unique_ptr<char[]>(new char[nbytes]);
+//        buff = std::unique_ptr<char[]>(new char[nbytes]);
     } else { // just read all available bytes in Rx-buffer
         if ( !nbytes ) return nbytes; // no data? do not wait and return immediately!
     }
@@ -638,6 +729,16 @@ bool EagleCamera::is_reset_temp_trip(const unsigned char state)
 bool EagleCamera::is_tec_enabled(const unsigned char state)
 {
     return state & CL_FPGA_CTRL_REG_ENABLE_TEC;
+}
+
+
+void EagleCamera::setTriggerMode(unsigned char mode)
+{
+    byte_vector_t comm = CL_COMMAND_WRITE_VALUE;
+    comm[3] = 0xD4;
+    comm[4] = mode;
+
+    cl_exec(comm);
 }
 
 
@@ -916,16 +1017,32 @@ std::string EagleCamera::getBuildCode()
 }
 
 
+std::string EagleCamera::getMicroVersion()
+{
+    return _microVersion;
+}
+
+
+std::string EagleCamera::getFPGAVersion()
+{
+    return _FPGAVersion;
+}
+
+
     // format logging message
 
 template<typename ...T>
 void EagleCamera::formatLogMessage(const char* func_name, T ...args)
 {
 
+    logMessageStreamMutex.lock();
+
     logMessageStream.str("");
     logMessageStream << func_name << "(" << cameraUnitmap << ", ";
     logHelper(args...);
     logMessageStream << ")";
+
+    logMessageStreamMutex.unlock();
 }
 
 

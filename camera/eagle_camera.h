@@ -33,6 +33,8 @@
 #include <memory>
 #include <exception>
 #include <thread>
+#include <atomic>
+#include <mutex>
 
                     /*********************************************
                     *                                            *
@@ -43,13 +45,17 @@
                     *                                            *
                     *********************************************/
 
+
+
+#define EAGLE_CAMERA_DEFAULT_BUFFER_TIMEOUT 10  // default timeout in seconds for captured image buffer copying proccess
+#define EAGLE_CAMERA_DEFAULT_LOG_TAB 3        // default tabulation in symbols for logging
+
+
 // just forward declaration
 
 class EAGLE_CAMERA_LIBRARY_EXPORT EagleCamera_StringFeature;
 class EAGLE_CAMERA_LIBRARY_EXPORT EagleCameraException;
 
-
-#define EAGLE_CAMERA_DEFAULT_LOG_TAB 3 // default tabulation in symbols for logging
 
 
 class EAGLE_CAMERA_LIBRARY_EXPORT EagleCamera
@@ -76,6 +82,7 @@ public:
                             Error_ReadOnlyFeature, Error_WriteOnlyFeature,
                             Error_FeatureValueIsOutOfRange, Error_InvalidFeatureValue,
                             Error_UnexpectedFPGAValue,
+                            Error_CopyBufferTimeout,
                             Error_OK = 0,
                             // errors from EAGLE V 4240 Instruction Manual
                             Error_ETX_SER_TIMEOUT = 0x51, Error_ETX_CK_SUM_ERR,
@@ -98,6 +105,8 @@ public:
 
     void startAcquisition();
     void stopAcquisition();
+
+    void virtual imageReady(const ushort* image_buffer);
 
     void logToFile(const EagleCamera::EagleCameraLogIdent ident, const std::string &log_str, const int indent_tabs = 0);
     void logToFile(const EagleCameraException &ex, const int indent_tabs = 0);
@@ -327,7 +336,7 @@ public:
     CameraFeatureProxy & operator[](const char* name);
     CameraFeatureProxy & operator[](const std::string & name);
 
-    // operator to execute command
+                // operator to execute command
 
     template<typename ... Types>
     void operator()(const std::string name, Types ...args)
@@ -358,6 +367,7 @@ protected:
 
     EagleCamera::EagleCameraLogLevel logLevel;
     std::ostream* cameraLog;
+    std::mutex logMutex;
 
     IntegerType _ccdDimension[2];
     IntegerType _bitsPerPixel;
@@ -367,6 +377,22 @@ protected:
     double DAC_LinearCoeffs[2];
 
     void setInitialState();
+
+
+        /*  exposure control   */
+
+    IntegerType _frameCounts; // number of frames per aqcuisition proccess
+    IntegerType _currentBuffer;
+
+    std::vector<std::unique_ptr<ushort[]>> _imageBuffer; // image buffers addresses
+    size_t _currentBufferLength;
+
+
+        /*  capturing control  */
+
+    void captureImage(const double timeout) NOEXCEPT_DECL; // timeout is in seconds
+    std::atomic<bool> stopCapturing;
+
 
         /*  feauture control members  */
 
@@ -431,6 +457,8 @@ protected:
     bool is_high_gain_enabled(const unsigned char state);
     bool is_reset_temp_trip(const unsigned char state);
     bool is_tec_enabled(const unsigned char state);
+
+    void setTriggerMode(unsigned char mode);
 
     void setTriggerMode(bool snapshot, bool enable_fixed_frame_rate, bool start_cont_seq,
                         bool abort_exp, bool enable_extern_trigger, bool enable_rising_edge);
@@ -526,6 +554,7 @@ protected:
         /*  auxiliary methods  */
 
     std::stringstream logMessageStream;
+    std::mutex logMessageStreamMutex;
 
     // format logging message for call of XCLIB functions
     // (the first argument is XCLIB function name, others - its arguments)

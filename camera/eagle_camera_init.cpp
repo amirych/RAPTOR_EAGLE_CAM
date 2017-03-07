@@ -168,47 +168,90 @@ void EagleCamera::InitCameraFeatures()
 
     PREDEFINED_CAMERA_FEATURES["CCDTemperature"] = std::unique_ptr<EagleCamera::CameraAbstractFeature>(
             new EagleCamera::CameraFeature<double>( "CCDTemperature",
-                    EagleCamera::ReadOnly, {}) );
+                    EagleCamera::ReadOnly, {},
+                    std::bind(static_cast<double(EagleCamera::*)()>
+                    (&EagleCamera::getCCDTemp), this)
+               ));
 
     PREDEFINED_CAMERA_FEATURES["PCBTemperature"] = std::unique_ptr<EagleCamera::CameraAbstractFeature>(
             new EagleCamera::CameraFeature<double>( "PCBTemperature",
-                    EagleCamera::ReadOnly, {}) );
+                    EagleCamera::ReadOnly, {},
+                    std::bind(static_cast<double(EagleCamera::*)()>
+                    (&EagleCamera::getPCBTemp), this)
+               ));
 
     PREDEFINED_CAMERA_FEATURES["ADC_CALIB_0"] = std::unique_ptr<EagleCamera::CameraAbstractFeature>(
             new EagleCamera::CameraFeature<EagleCamera::IntegerType>( "ADC_CALIB_0",
-                    EagleCamera::ReadOnly, {}) );
+                    EagleCamera::ReadOnly, {},
+                    std::bind(static_cast<EagleCamera::IntegerType(EagleCamera::*)()>
+                    (&EagleCamera::getADC_CALIB_0), this)
+               ));
 
     PREDEFINED_CAMERA_FEATURES["ADC_CALIB_1"] = std::unique_ptr<EagleCamera::CameraAbstractFeature>(
             new EagleCamera::CameraFeature<EagleCamera::IntegerType>( "ADC_CALIB_1",
-                    EagleCamera::ReadOnly, {}) );
+                    EagleCamera::ReadOnly, {},
+                    std::bind(static_cast<EagleCamera::IntegerType(EagleCamera::*)()>
+                    (&EagleCamera::getADC_CALIB_1), this)
+               ));
 
     PREDEFINED_CAMERA_FEATURES["DAC_CALIB_0"] = std::unique_ptr<EagleCamera::CameraAbstractFeature>(
             new EagleCamera::CameraFeature<EagleCamera::IntegerType>( "DAC_CALIB_0",
-                    EagleCamera::ReadOnly, {}) );
+                    EagleCamera::ReadOnly, {},
+                    std::bind(static_cast<EagleCamera::IntegerType(EagleCamera::*)()>
+                    (&EagleCamera::getDAC_CALIB_0), this)
+               ));
 
     PREDEFINED_CAMERA_FEATURES["DAC_CALIB_1"] = std::unique_ptr<EagleCamera::CameraAbstractFeature>(
             new EagleCamera::CameraFeature<EagleCamera::IntegerType>( "DAC_CALIB_1",
-                    EagleCamera::ReadOnly, {}) );
+                    EagleCamera::ReadOnly, {},
+                    std::bind(static_cast<EagleCamera::IntegerType(EagleCamera::*)()>
+                    (&EagleCamera::getDAC_CALIB_1), this)
+               ));
 
     PREDEFINED_CAMERA_FEATURES["SerialNumber"] = std::unique_ptr<EagleCamera::CameraAbstractFeature>(
             new EagleCamera::CameraFeature<EagleCamera::IntegerType>( "SerialNumber",
-                    EagleCamera::ReadOnly, {}) );
+                    EagleCamera::ReadOnly, {},
+                    std::bind(static_cast<EagleCamera::IntegerType(EagleCamera::*)()>
+                    (&EagleCamera::getSerialNumber), this)
+               ));
 
     PREDEFINED_CAMERA_FEATURES["BuildDate"] = std::unique_ptr<EagleCamera::CameraAbstractFeature>(
             new EagleCamera::CameraFeature<std::string>( "BuildDate",
-                    EagleCamera::ReadOnly, {}) );
+                    EagleCamera::ReadOnly, {},
+                    std::bind(static_cast<std::string(EagleCamera::*)()>
+                    (&EagleCamera::getBuildDate), this)
+               ));
 
     PREDEFINED_CAMERA_FEATURES["BuildCode"] = std::unique_ptr<EagleCamera::CameraAbstractFeature>(
             new EagleCamera::CameraFeature<std::string>( "BuildCode",
-                    EagleCamera::ReadOnly, {}) );
+                    EagleCamera::ReadOnly, {},
+                    std::bind(static_cast<std::string(EagleCamera::*)()>
+                    (&EagleCamera::getBuildCode), this)
+               ));
 
     PREDEFINED_CAMERA_FEATURES["FPGAVersion"] = std::unique_ptr<EagleCamera::CameraAbstractFeature>(
             new EagleCamera::CameraFeature<std::string>( "FPGAVersion",
-                    EagleCamera::ReadOnly, {}) );
+                    EagleCamera::ReadOnly, {},
+                    std::bind(static_cast<std::string(EagleCamera::*)()>
+                    (&EagleCamera::getFPGAVersion), this)
+               ));
 
     PREDEFINED_CAMERA_FEATURES["MicroVersion"] = std::unique_ptr<EagleCamera::CameraAbstractFeature>(
             new EagleCamera::CameraFeature<std::string>( "MicroVersion",
-                    EagleCamera::ReadOnly, {}) );
+                    EagleCamera::ReadOnly, {},
+                    std::bind(static_cast<std::string(EagleCamera::*)()>
+                    (&EagleCamera::getMicroVersion), this)
+               ));
+
+                    // non-hardware features
+
+    PREDEFINED_CAMERA_FEATURES["FrameCounts"] = std::unique_ptr<EagleCamera::CameraAbstractFeature>(
+            new EagleCamera::CameraFeature<EagleCamera::IntegerType>( "FrameCounts",
+                    EagleCamera::ReadWrite, {1,std::numeric_limits<IntegerType>::max()},
+                    [this]() {return _frameCounts;},
+                    [this](const EagleCamera::IntegerType fc){_frameCounts = fc;}
+               ));
+
 
 }
 
