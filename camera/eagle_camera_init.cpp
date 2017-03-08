@@ -253,6 +253,30 @@ void EagleCamera::InitCameraFeatures()
                ));
 
 
+    PREDEFINED_CAMERA_FEATURES["FitsFilename"] = std::unique_ptr<EagleCamera::CameraAbstractFeature>(
+            new EagleCamera::CameraFeature<std::string>( "FitsFilename",
+                    EagleCamera::ReadWrite, {},
+                    [this]() {return _fitsFilename;},
+                    [this](const std::string fn){_fitsFilename = fn;}
+               ));
+
+
+    PREDEFINED_CAMERA_FEATURES["FitsHdrFilename"] = std::unique_ptr<EagleCamera::CameraAbstractFeature>(
+            new EagleCamera::CameraFeature<std::string>( "FitsHdrFilename",
+                    EagleCamera::ReadWrite, {},
+                    [this]() {return _fitsHdrFilename;},
+                    [this](const std::string fhn){_fitsHdrFilename = fhn;}
+               ));
+
+
+    PREDEFINED_CAMERA_FEATURES["FitsMultiImageFormat"] = std::unique_ptr<EagleCamera::CameraAbstractFeature>(
+            new EagleCamera::CameraFeature<std::string>( "FitsMultiImageFormat",
+                    EagleCamera::ReadWrite, {"EXTEN","CUBE"},
+                    [this]() {return _fitsMultiImageFormat;},
+                    [this](const std::string ff){_fitsMultiImageFormat = ff;}
+               ));
+
+
 }
 
 

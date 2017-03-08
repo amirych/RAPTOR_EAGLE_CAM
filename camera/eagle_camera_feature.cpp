@@ -102,12 +102,14 @@ EagleCamera::CameraFeatureProxy & EagleCamera::CameraFeatureProxy::operator = (c
                                                             (_camera->currentCameraFeature);
 
     // check for valid value
-    auto it = f->range().begin();
-    for ( ; it != f->range().end(); ++it ) {
-        if ( !val.compare(*it) ) break;
-    }
-    if ( it == f->range().end() ) {
-        throw EagleCameraException(0,EagleCamera::Error_InvalidFeatureValue, "Invalid value for String Feature!");
+    if ( f->range().size() ) {
+        auto it = f->range().begin();
+        for ( ; it != f->range().end(); ++it ) {
+            if ( !val.compare(*it) ) break;
+        }
+        if ( it == f->range().end() ) {
+            throw EagleCameraException(0,EagleCamera::Error_InvalidFeatureValue, "Invalid value for String Feature!");
+        }
     }
 
     f->set(val);

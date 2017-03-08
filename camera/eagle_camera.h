@@ -4,6 +4,7 @@
 
 #if defined(_WIN32) || defined(__WIN32__) || defined(_WIN64) // needs for xcliball.h
     #include <windows.h>
+    #undef min // to use std::numeric_limits<int>::min()
 #endif
 
 #ifdef _MSC_VER
@@ -12,11 +13,14 @@
     #pragma warning( disable: 4251 )
 #if (_MSC_VER > 1800)
     #define NOEXCEPT_DECL noexcept
+    #define MIN_INT_VALUE std::numeric_limits<int>::min()
 #else
     #define NOEXCEPT_DECL // empty to compile with VS2013
+    #define MIN_INT_VALUE MININT // VS2013 has no constexpr
 #endif
 #else
     #define NOEXCEPT_DECL noexcept
+    #define MIN_INT_VALUE std::numeric_limits<int>::min()
 #endif
 
 
@@ -33,8 +37,12 @@
 #include <memory>
 #include <exception>
 #include <thread>
+#include <future>
 #include <atomic>
 #include <mutex>
+#include <fitsio.h>
+
+
 
                     /*********************************************
                     *                                            *
@@ -48,6 +56,8 @@
 
 
 #define EAGLE_CAMERA_DEFAULT_BUFFER_TIMEOUT 10  // default timeout in seconds for captured image buffer copying proccess
+#define EAGLE_CAMERA_DEFAULT_ACQUISITION_POLL_INTERVAL 100 // default interval in milliseconds for polling of acquisition
+                                                           // proccess
 #define EAGLE_CAMERA_DEFAULT_LOG_TAB 3        // default tabulation in symbols for logging
 
 
@@ -76,8 +86,9 @@ public:
 
     enum EagleCameraFeatureAccess {UnknownAccess = -1, ReadWrite, ReadOnly, WriteOnly};
 
-    enum EagleCameraError { Error_Uninitialized = std::numeric_limits<int>::min(),
-                            Error_NullPointer, Error_InvalidUnitmap,
+    enum EagleCameraError { Error_Uninitialized = MIN_INT_VALUE,
+                            Error_NullPointer, Error_MemoryAllocation,
+                            Error_InvalidUnitmap,
                             Error_UnknowCommand, Error_UnknowFeature,
                             Error_ReadOnlyFeature, Error_WriteOnlyFeature,
                             Error_FeatureValueIsOutOfRange, Error_InvalidFeatureValue,
@@ -86,7 +97,8 @@ public:
                             Error_OK = 0,
                             // errors from EAGLE V 4240 Instruction Manual
                             Error_ETX_SER_TIMEOUT = 0x51, Error_ETX_CK_SUM_ERR,
-                            Error_ETX_I2C_ERR, Error_ETX_UNKNOWN_CMD, Error_ETX_DONE_LOW
+                            Error_ETX_I2C_ERR, Error_ETX_UNKNOWN_CMD, Error_ETX_DONE_LOW,
+                            Error_FITS_ERR
                           };
 
     enum EagleCameraLogLevel {LOG_LEVEL_QUIET, LOG_LEVEL_ERROR, LOG_LEVEL_VERBOSE};
@@ -106,7 +118,17 @@ public:
     void startAcquisition();
     void stopAcquisition();
 
-    void virtual imageReady(const ushort* image_buffer);
+    // is invoked every time image was captured and
+    // copied to buffer pointed by 'image_buffer'.
+    // size of the buffer is in _currentBufferLength.
+    // in frame_no a sequence number of frame for 'image_buffer' will be returned
+    void virtual imageReady(IntegerType* frame_no, const ushort* image_buffer);
+
+    // is invoked every time acquisition proccess was started
+    void virtual acquisitionIsAboutToStart();
+
+    // is invoked every time acquisition proccess was stopped
+    void virtual acquisitionIsAboutToStop();
 
     void logToFile(const EagleCamera::EagleCameraLogIdent ident, const std::string &log_str, const int indent_tabs = 0);
     void logToFile(const EagleCameraException &ex, const int indent_tabs = 0);
@@ -387,11 +409,22 @@ protected:
     std::vector<std::unique_ptr<ushort[]>> _imageBuffer; // image buffers addresses
     size_t _currentBufferLength;
 
+    fitsfile* _fitsFilePtr;
+    std::string _fitsFilename;
+    std::string _fitsHdrFilename;
+    std::string _fitsMultiImageFormat;
+
+    EagleCamera::EagleCameraError _lastCameraError;
+    int _lastXCLIBError;
+    std::atomic<bool> _acquiringFinished;
+    long _acquisitionProccessPollingInterval; // in milliseconds
 
         /*  capturing control  */
 
     void captureImage(const double timeout) NOEXCEPT_DECL; // timeout is in seconds
-    std::atomic<bool> stopCapturing;
+    void captureAndCopyImage(IntegerType frame_no, const double timeout) NOEXCEPT_DECL; // timeout is in seconds
+    std::vector<std::future<void>> _copyFramebuffersFuture;
+    std::atomic<bool> _stopCapturing;
 
 
         /*  feauture control members  */
@@ -556,8 +589,15 @@ protected:
     std::stringstream logMessageStream;
     std::mutex logMessageStreamMutex;
 
+    // format logging message for call of CFITSIO functions
+    // (the first argument is CFITSIO function name, others - its arguments
+    // except the first one (pointer to FITS structure) - it is added automatically)
+    template<typename... T>
+    void formatFitsLogMessage(const char* func_name, T... args);
+
     // format logging message for call of XCLIB functions
-    // (the first argument is XCLIB function name, others - its arguments)
+    // (the first argument is XCLIB function name, others - its arguments
+    // except the first one (unitmap) - it is added automatically)
     template<typename... T>
     void formatLogMessage(const char* func_name, T... args);
 
