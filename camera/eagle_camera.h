@@ -3,8 +3,10 @@
 
 
 #if defined(_WIN32) || defined(__WIN32__) || defined(_WIN64) // needs for xcliball.h
+    #define _CRT_SECURE_NO_WARNINGS
     #include <windows.h>
     #undef min // to use std::numeric_limits<int>::min()
+    #undef max // to use std::numeric_limits<int>::max()
 #endif
 
 #ifdef _MSC_VER
@@ -137,7 +139,7 @@ protected:
 
             /*   DECLARATION OF BASE CLASS FOR CAMERA FEATURES  */
 
-    class CameraAbstractFeature {
+    class EAGLE_CAMERA_LIBRARY_EXPORT CameraAbstractFeature {
     public:
         CameraAbstractFeature(const std::string & name,
                               const EagleCamera::EagleCameraFeatureType type,
@@ -207,7 +209,7 @@ protected:
 
             /*   DECLARATION OF A PROXY CLASS TO ACCESS EAGLE CAMERA FEATURES  */
 
-    class CameraFeatureProxy {
+    class EAGLE_CAMERA_LIBRARY_EXPORT CameraFeatureProxy {
         friend class EagleCamera_StringFeature;
     public:
         CameraFeatureProxy(EagleCamera *camera);

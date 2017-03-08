@@ -38,6 +38,7 @@ configure_file (
 # API library
 set(EAGLE_CAMERA_LIB eagle_camera)
 include_directories(./camera ${XCLIB_INCLUDE_DIR})
+include_directories(./camera ${CFITSIO_INCLUDE_DIR})
 aux_source_directory(./camera/ EAGLE_CAMERA_SRC)
 add_library(${EAGLE_CAMERA_LIB} SHARED ${EAGLE_CAMERA_SRC})
 target_link_libraries(${EAGLE_CAMERA_LIB} ${XCLIB_LIBRARIES})

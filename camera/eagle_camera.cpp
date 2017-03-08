@@ -45,6 +45,8 @@ int CFITSIO_API_CALL(int err_code, const char *context)
     if ( err_code ) {
         throw EagleCameraException(err_code, EagleCamera::Error_FITS_ERR, context);
     }
+
+    return err_code;
 }
 
 
@@ -53,6 +55,8 @@ int CFITSIO_API_CALL(int err_code, const std::string &context)
     if ( err_code ) {
         throw EagleCameraException(err_code, EagleCamera::Error_FITS_ERR, context);
     }
+
+    return err_code;
 }
 
 
@@ -64,9 +68,11 @@ static std::string time_stamp()
     char time_stamp[100];
 
     struct std::tm buff;
-    buff = *std::localtime(&now_c);
+//    buff = *std::localtime(&now_c);
+    buff = *localtime(&now_c);
 
-    std::strftime(time_stamp,sizeof(time_stamp),"%c",&buff);
+//    std::strftime(time_stamp,sizeof(time_stamp),"%c",&buff);
+    strftime(time_stamp,sizeof(time_stamp),"%c",&buff);
 
     return std::string(time_stamp);
 }
@@ -818,30 +824,30 @@ unsigned char EagleCamera::getSystemState()
 
 inline bool EagleCamera::is_chk_sum_enabled(const unsigned char state)
 {
-    return state & CL_SYSTEM_STATE_CK_SUM;
+    return ( state & CL_SYSTEM_STATE_CK_SUM ) ? true : false;
 }
 
 
 inline bool EagleCamera::is_ack_enabled(const unsigned char state)
 {
-    return state & CL_SYSTEM_STATE_ACK;
+    return ( state & CL_SYSTEM_STATE_ACK ) ? true : false;
 }
 
 inline bool EagleCamera::is_fpga_boot_ok(const unsigned char state)
 {
-    return state & CL_SYSTEM_STATE_FPGA_BOOT_OK;
+    return (state & CL_SYSTEM_STATE_FPGA_BOOT_OK) ? true : false;
 }
 
 
 inline bool EagleCamera::is_fpga_in_reset(const unsigned char state)
 {
-    return !(state & CL_SYSTEM_STATE_FPGA_RST_HOLD);
+    return !(state & CL_SYSTEM_STATE_FPGA_RST_HOLD) ? true : false;
 }
 
 
 inline bool EagleCamera::is_fpga_eprom_enabled(const unsigned char state)
 {
-    return state & CL_SYSTEM_STATE_FPGA_EPROM_COMMS;
+    return (state & CL_SYSTEM_STATE_FPGA_EPROM_COMMS) ? true : false;
 }
 
 
@@ -887,19 +893,19 @@ unsigned char EagleCamera::getCtrlRegister()
 
 bool EagleCamera::is_high_gain_enabled(const unsigned char state)
 {
-    return !(state & CL_FPGA_CTRL_REG_HIGH_GAIN);
+    return !(state & CL_FPGA_CTRL_REG_HIGH_GAIN) ? true : false;
 }
 
 
 bool EagleCamera::is_reset_temp_trip(const unsigned char state)
 {
-    return state & CL_FPGA_CTRL_REG_TMP_TRIP_RST;
+    return (state & CL_FPGA_CTRL_REG_TMP_TRIP_RST) ? true : false;
 }
 
 
 bool EagleCamera::is_tec_enabled(const unsigned char state)
 {
-    return state & CL_FPGA_CTRL_REG_ENABLE_TEC;
+    return (state & CL_FPGA_CTRL_REG_ENABLE_TEC) ? true : false;
 }
 
 
@@ -950,25 +956,25 @@ unsigned char EagleCamera::getTriggerMode()
 
 bool EagleCamera::is_fixed_frame_rate(unsigned char mode)
 {
-    return mode & CL_TRIGGER_MODE_FIXED_FRAME_RATE;
+    return (mode & CL_TRIGGER_MODE_FIXED_FRAME_RATE) ? true : false;
 }
 
 
 bool EagleCamera::is_cont_seq(unsigned char mode)
 {
-    return mode & CL_TRIGGER_MODE_CONTINUOUS_SEQ;
+    return (mode & CL_TRIGGER_MODE_CONTINUOUS_SEQ) ? true : false;
 }
 
 
 bool EagleCamera::is_ext_trigger(unsigned char mode)
 {
-    return mode & CL_TRIGGER_MODE_EXT_TRIGGER;
+    return (mode & CL_TRIGGER_MODE_EXT_TRIGGER) ? true : false;
 }
 
 
 bool EagleCamera::is_rising_edge(unsigned char mode)
 {
-    return mode & CL_TRIGGER_MODE_ENABLE_RISING_EDGE;
+    return (mode & CL_TRIGGER_MODE_ENABLE_RISING_EDGE) ? true : false;
 }
 
 bool EagleCamera::resetMicro(const long timeout)
