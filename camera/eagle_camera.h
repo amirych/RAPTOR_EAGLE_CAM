@@ -56,12 +56,41 @@
                     *********************************************/
 
 
+                            /*   definitions   */
 
 #define EAGLE_CAMERA_DEFAULT_BUFFER_TIMEOUT 10  // default timeout in seconds for captured image buffer copying proccess
 #define EAGLE_CAMERA_DEFAULT_ACQUISITION_POLL_INTERVAL 100 // default interval in milliseconds for polling of acquisition
                                                            // proccess
 #define EAGLE_CAMERA_DEFAULT_LOG_TAB 3        // default tabulation in symbols for logging
 
+
+// FITS keywords name to be written
+
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_ORIGIN "Acquisition system"
+
+#define EAGLE_CAMERA_FITS_KEYWORD_NAME_STARTX "CRVAL1"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_STARTX "Start pixel along X-axis"
+
+#define EAGLE_CAMERA_FITS_KEYWORD_NAME_STARTY "CRVAL2"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_STARTY "Start pixel along Y-axis"
+
+#define EAGLE_CAMERA_FITS_KEYWORD_NAME_BINNING "BINNING"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_BINNING "Binning mode (XBINxYBIN)"
+
+#define EAGLE_CAMERA_FITS_KEYWORD_NAME_READOUT_RATE "READRATE"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_READOUT_RATE "Camera readout rate"
+
+#define EAGLE_CAMERA_FITS_KEYWORD_NAME_READOUT_MODE "READMODE"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_READOUT_MODE "Camera readout mode"
+
+#define EAGLE_CAMERA_FITS_KEYWORD_NAME_SERIAL_NUMBER "SERNUM"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_SERIAL_NUMBER "Camera serial number"
+
+#define EAGLE_CAMERA_FITS_KEYWORD_NAME_MICRO_VERSION "MICROVER"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_MICRO_VERSION "Camera microcontroller version"
+
+#define EAGLE_CAMERA_FITS_KEYWORD_NAME_FPGA_VERSION  "FPGAVER"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_FPGA_VERSION  "Camera FPGA version"
 
 // just forward declaration
 

@@ -26,6 +26,7 @@ if ( CFITSIO_FOUND )
 endif()
 
 
+set (EAGLE_CAMERA_SOFTWARE_NAME "EagleCam control software")
 set (EAGLE_CAMERA_VERSION_MAJOR 0)
 set (EAGLE_CAMERA_VERSION_MINOR 1)
 

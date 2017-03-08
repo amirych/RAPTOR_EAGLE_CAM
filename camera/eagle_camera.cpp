@@ -534,15 +534,124 @@ void EagleCamera::imageReady(IntegerType *frame_no, const ushort *image_buffer)
 
 void EagleCamera::acquisitionIsAboutToStop()
 {
-    if ( (_lastCameraError != EagleCamera::Error_OK) || (_lastXCLIBError != 0) ) {
+    // check for exit status of acquisition procsess
+    if ( (_lastCameraError != EagleCamera::Error_OK) || (_lastXCLIBError < 0) ) {
         throw EagleCameraException(_lastXCLIBError, _lastCameraError, "Acquisition proccess failed");
     }
 
-    if ( !_fitsFilename.compare("") ) return;
+    if ( _fitsFilename.empty() ) return;
 
-    if ( _fitsFilePtr ) { // wait for all capture-and-copy-image threads finished and close FITS file
+    if ( _fitsFilePtr ) {
+        int status = 0;
+
+        // wait for all capture-and-copy-image threads finished and close FITS file
         for (size_t i = 0; i < _copyFramebuffersFuture.size(); ++i)
             _copyFramebuffersFuture[i].wait_for(std::chrono::seconds(EAGLE_CAMERA_DEFAULT_BUFFER_TIMEOUT));
+
+        // move to primary HDU (needs if multiple extensions format was used)
+        formatFitsLogMessage("fits_movabs_hdu", 1, 0, (void*)status);
+        CFITSIO_API_CALL( fits_movabs_hdu(_fitsFilePtr, 1, NULL, &status), logMessageStream.str());
+
+        // write camera info FITS keywords
+        EagleCamera_StringFeature str_f;
+        std::string str_val;
+        IntegerType int_val;
+        double float_val;
+        long long_val;
+
+        // origin
+        str_val = std::string(EAGLE_CAMERA_SOFTWARE_NAME) + ", v" + std::to_string(EAGLE_CAMERA_VERSION_MAJOR) + "." +
+                  std::to_string(EAGLE_CAMERA_VERSION_MINOR);
+        formatFitsLogMessage("fits_update_key", TSTRING, "ORIGIN", str_val, EAGLE_CAMERA_FITS_KEYWORD_COMMENT_ORIGIN, &status);
+        CFITSIO_API_CALL( fits_update_key(_fitsFilePtr, TSTRING, "ORIGIN", (void*)str_val.c_str(),
+                                          EAGLE_CAMERA_FITS_KEYWORD_COMMENT_ORIGIN, &status),
+                           logMessageStream.str() );
+
+        // start pixels coordinates
+        long_val = (*this)[EAGLE_CAMERA_FEATURE_ROI_LEFT_NAME];
+        formatFitsLogMessage("fits_update_key", TLONG, EAGLE_CAMERA_FITS_KEYWORD_NAME_STARTX, long_val,
+                             EAGLE_CAMERA_FITS_KEYWORD_COMMENT_STARTX, &status);
+        CFITSIO_API_CALL( fits_update_key(_fitsFilePtr, TLONG, EAGLE_CAMERA_FITS_KEYWORD_NAME_STARTX, &long_val,
+                                          EAGLE_CAMERA_FITS_KEYWORD_COMMENT_STARTX, &status),
+                           logMessageStream.str() );
+
+        long_val = (*this)[EAGLE_CAMERA_FEATURE_ROI_TOP_NAME];
+        formatFitsLogMessage("fits_update_key", TLONG, EAGLE_CAMERA_FITS_KEYWORD_NAME_STARTY, long_val,
+                             EAGLE_CAMERA_FITS_KEYWORD_COMMENT_STARTY, &status);
+        CFITSIO_API_CALL( fits_update_key(_fitsFilePtr, TLONG, EAGLE_CAMERA_FITS_KEYWORD_NAME_STARTY, &long_val,
+                                          EAGLE_CAMERA_FITS_KEYWORD_COMMENT_STARTY, &status),
+                           logMessageStream.str() );
+
+        // binning
+        int_val = (*this)[EAGLE_CAMERA_FEATURE_HBIN_NAME];
+        str_val = std::to_string(int_val) + "x";
+        int_val = (*this)[EAGLE_CAMERA_FEATURE_VBIN_NAME];
+        str_val += std::to_string(int_val);
+        formatFitsLogMessage("fits_update_key", TSTRING, EAGLE_CAMERA_FITS_KEYWORD_NAME_BINNING, str_val,
+                             EAGLE_CAMERA_FITS_KEYWORD_COMMENT_BINNING, &status);
+        CFITSIO_API_CALL( fits_update_key(_fitsFilePtr, TSTRING, EAGLE_CAMERA_FITS_KEYWORD_NAME_BINNING, (void*)str_val.c_str(),
+                                          EAGLE_CAMERA_FITS_KEYWORD_COMMENT_BINNING, &status),
+                           logMessageStream.str() );
+
+
+        // readout rate
+        str_f = (*this)[EAGLE_CAMERA_FEATURE_READOUT_RATE_NAME];
+        str_val = EAGLE_CAMERA_FITS_KEYWORD_COMMENT_READOUT_RATE;
+        if ( !str_f.value().compare(EAGLE_CAMERA_FEATURE_READOUT_RATE_FAST) ) {
+            str_val += " (2 MHz)";
+        } else {
+            str_val += " (75 kHz)";
+        }
+        formatFitsLogMessage("fits_update_key", TSTRING, EAGLE_CAMERA_FITS_KEYWORD_NAME_READOUT_RATE,
+                             str_f.value(), str_val, &status);
+        CFITSIO_API_CALL( fits_update_key(_fitsFilePtr, TSTRING, EAGLE_CAMERA_FITS_KEYWORD_NAME_READOUT_RATE,
+                                          (void*)str_f.value().c_str(), str_val.c_str(), &status),
+                          logMessageStream.str() );
+
+
+        // readout mode
+        str_f = (*this)[EAGLE_CAMERA_FEATURE_READOUT_MODE_NAME];
+        formatFitsLogMessage("fits_update_key", TSTRING, EAGLE_CAMERA_FITS_KEYWORD_NAME_READOUT_MODE,
+                             str_f.value(), EAGLE_CAMERA_FITS_KEYWORD_COMMENT_READOUT_MODE, &status);
+        CFITSIO_API_CALL( fits_update_key(_fitsFilePtr, TSTRING, EAGLE_CAMERA_FITS_KEYWORD_NAME_READOUT_MODE,
+                                          (void*)str_f.value().c_str(), EAGLE_CAMERA_FITS_KEYWORD_COMMENT_READOUT_MODE, &status),
+                          logMessageStream.str() );
+
+
+        // versions info keywords
+        long_val = (long)_serialNumber;
+        formatFitsLogMessage("fits_update_key", TLONG, EAGLE_CAMERA_FITS_KEYWORD_NAME_SERIAL_NUMBER,
+                             long_val, EAGLE_CAMERA_FITS_KEYWORD_COMMENT_SERIAL_NUMBER, &status);
+        CFITSIO_API_CALL( fits_update_key(_fitsFilePtr, TLONG, EAGLE_CAMERA_FITS_KEYWORD_NAME_SERIAL_NUMBER,
+                                          &long_val, EAGLE_CAMERA_FITS_KEYWORD_COMMENT_SERIAL_NUMBER, &status),
+                          logMessageStream.str());
+
+
+        formatFitsLogMessage("fits_update_key", TSTRING, EAGLE_CAMERA_FITS_KEYWORD_NAME_MICRO_VERSION,
+                             _microVersion, EAGLE_CAMERA_FITS_KEYWORD_COMMENT_MICRO_VERSION, &status);
+        CFITSIO_API_CALL( fits_update_key(_fitsFilePtr, TSTRING, EAGLE_CAMERA_FITS_KEYWORD_NAME_MICRO_VERSION,
+                                          (void*)_microVersion.c_str(), EAGLE_CAMERA_FITS_KEYWORD_COMMENT_MICRO_VERSION, &status),
+                          logMessageStream.str() );
+
+
+        formatFitsLogMessage("fits_update_key", TSTRING, EAGLE_CAMERA_FITS_KEYWORD_NAME_FPGA_VERSION,
+                             _FPGAVersion, EAGLE_CAMERA_FITS_KEYWORD_COMMENT_FPGA_VERSION, &status);
+        CFITSIO_API_CALL( fits_update_key(_fitsFilePtr, TSTRING, EAGLE_CAMERA_FITS_KEYWORD_NAME_FPGA_VERSION,
+                                          (void*)_FPGAVersion.c_str(), EAGLE_CAMERA_FITS_KEYWORD_COMMENT_FPGA_VERSION, &status),
+                          logMessageStream.str() );
+
+
+        // write user FITS keywords
+        if ( !_fitsHdrFilename.empty() ) {
+            formatFitsLogMessage("fits_write_key_template", _fitsHdrFilename, (void*)&status);
+            CFITSIO_API_CALL( fits_write_key_template(_fitsFilePtr, _fitsHdrFilename.c_str(),&status),
+                              logMessageStream.str());
+
+            if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
+                logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, logMessageStream.str());
+            }
+
+        }
 
         formatFitsLogMessage("fits_close_file",0);
         CFITSIO_API_CALL( fits_close_file(_fitsFilePtr,nullptr), logMessageStream.str());
