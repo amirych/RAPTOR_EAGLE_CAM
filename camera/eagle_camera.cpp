@@ -3,6 +3,7 @@
 
 #include <xcliball.h>
 #include <cameralink_defs.h>
+#include <eagle_camera_init_defs.h>
 
 #include <future>
 #include <chrono>
@@ -117,7 +118,8 @@ EagleCamera::EagleCamera(const char *epix_video_fmt_filename):
     _lastCameraError(EagleCamera::Error_OK), _lastXCLIBError(0),
 
     _fitsFilePtr(nullptr),
-    _fitsFilename(""), _fitsHdrFilename(""), _fitsMultiImageFormat("EXTEN"),
+    _fitsFilename(""), _fitsHdrFilename(""),
+    _fitsDataFormat(EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_EXTEN),
 
     _ccdDimension(), _bitsPerPixel(0),
     _serialNumber(0), _buildDate(), _buildCode(),
@@ -332,20 +334,24 @@ void EagleCamera::startAcquisition()
     _lastCameraError = EagleCamera::Error_OK;
     _lastXCLIBError = 0;
 
-    IntegerType roi_width = (*this)["ROIWidth"];
-    IntegerType roi_height = (*this)["ROIHeight"];
+    _imageXDim = (*this)["ROIWidth"];
+    _imageYDim = (*this)["ROIHeight"];
     double expTime = (*this)["ExposureTime"];
 
     double timeout = expTime + 180.0;
 
-    IntegerType Nelem = roi_width*roi_height;
+    long Nelem = _imageXDim*_imageYDim;
     size_t Nbuffs;
-    if ( Nelem != _currentBufferLength ) {
-        _currentBufferLength = Nelem;
-        Nbuffs = (_frameBuffersNumber <= _frameCounts) ? _frameBuffersNumber : _frameCounts;
-        for ( size_t i = 0; i < Nbuffs; ++i ) {
-            _imageBuffer[i] = std::unique_ptr<ushort[]>(new ushort[_currentBufferLength]);
+    try {
+        if ( Nelem != _currentBufferLength ) {
+            _currentBufferLength = Nelem;
+            Nbuffs = (_frameBuffersNumber <= _frameCounts) ? _frameBuffersNumber : _frameCounts;
+            for ( size_t i = 0; i < Nbuffs; ++i ) {
+                _imageBuffer[i] = std::unique_ptr<ushort[]>(new ushort[_currentBufferLength]);
+            }
         }
+    } catch ( std::bad_alloc ) {
+        throw EagleCameraException(0, EagleCamera::Error_MemoryAllocation, "Cannot allocate memory for image buffer");
     }
 
 //    std::vector<std::future<void>> copy_buffer(Nbuffs);
@@ -354,7 +360,7 @@ void EagleCamera::startAcquisition()
 
     _acquiringFinished = false;
 
-    // start acquisition proccess
+    // start acquisition proccess in separate thread ...
 
     auto run_exp = std::async(std::launch::async, [&]{
 
@@ -426,10 +432,10 @@ void EagleCamera::acquisitionIsAboutToStart()
         std::unique_ptr<long[]> naxes;
         long naxis = 2;
 
-        IntegerType xsize = (*this)["ROIWidth"];
-        IntegerType ysize = (*this)["ROIHeight"];
+//        IntegerType xsize = (*this)["ROIWidth"];
+//        IntegerType ysize = (*this)["ROIHeight"];
 
-        bool exten_format = (!_fitsMultiImageFormat.compare("EXTEN")) ? true : false;
+        bool exten_format = (!_fitsDataFormat.compare(EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_EXTEN)) ? true : false;
 
         if ( _frameCounts > 1 ) { // multi image
             if ( exten_format ) { // FITS file is sequence of 2-dim IMAGE extentions
@@ -443,8 +449,10 @@ void EagleCamera::acquisitionIsAboutToStart()
             naxes = std::unique_ptr<long[]>(new long[2]); // FITS file is just 2-dim primary array.
         }
 
-        naxes[0] = xsize;
-        naxes[1] = ysize;
+//        naxes[0] = xsize;
+//        naxes[1] = ysize;
+        naxes[0] = _imageXDim;
+        naxes[1] = _imageYDim;
 
 
         std::string filename = "!" + _fitsFilename; // add '!' to overwrite existing file
@@ -486,7 +494,41 @@ void EagleCamera::acquisitionIsAboutToStart()
 
 void EagleCamera::imageReady(IntegerType *frame_no, const ushort *image_buffer)
 {
+    if ( _fitsFilePtr ) {
+        try {
+            int status = 0;
+            if ( !_fitsDataFormat.compare(EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_EXTEN) ) {
+                // first, create an extension
+                long naxes[] = {_imageXDim, _imageYDim};
+                formatFitsLogMessage("fits_create_img",USHORT_IMG,2,(void*)naxes,(void*)&status);
+                CFITSIO_API_CALL( fits_create_img(_fitsFilePtr,USHORT_IMG,2,naxes,&status),
+                                  logMessageStream.str() );
+                if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
+                    logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, logMessageStream.str());
+                }
 
+                // write image
+                formatFitsLogMessage("fits_write_img", TSHORT, 1, _currentBufferLength, (void*)image_buffer, (void*)&status);
+                CFITSIO_API_CALL( fits_write_img(_fitsFilePtr, TSHORT, 1, _currentBufferLength, (ushort*)image_buffer, &status),
+                                  logMessageStream.str() );
+                if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
+                    logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, logMessageStream.str());
+                }
+            } else {
+                long first_pix = *frame_no*_imageXDim*_imageYDim + 1;
+                formatFitsLogMessage("fits_write_img", TSHORT, first_pix, _currentBufferLength, (void*)image_buffer, (void*)&status);
+                CFITSIO_API_CALL( fits_write_img(_fitsFilePtr, TSHORT, first_pix, _currentBufferLength, (ushort*)image_buffer, &status),
+                                  logMessageStream.str() );
+                if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
+                    logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, logMessageStream.str());
+                }
+            }
+        } catch ( EagleCameraException &ex ) {
+            _lastCameraError = ex.Camera_Error();
+            _lastXCLIBError = ex.XCLIB_Error();
+            _stopCapturing = true;
+        }
+    }
 }
 
 

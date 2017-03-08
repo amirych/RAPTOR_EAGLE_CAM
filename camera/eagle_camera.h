@@ -18,7 +18,7 @@
     #define MIN_INT_VALUE std::numeric_limits<int>::min()
 #else
     #define NOEXCEPT_DECL // empty to compile with VS2013
-    #define MIN_INT_VALUE MININT // VS2013 has no constexpr
+    #define MIN_INT_VALUE MININT // VS2013 has no constexpr (it is required in enum definition)
 #endif
 #else
     #define NOEXCEPT_DECL noexcept
@@ -123,7 +123,8 @@ public:
     // is invoked every time image was captured and
     // copied to buffer pointed by 'image_buffer'.
     // size of the buffer is in _currentBufferLength.
-    // in frame_no a sequence number of frame for 'image_buffer' will be returned
+    // in 'frame_no' a sequence number of frame for 'image_buffer' will be returned.
+    // 'frame_no' starts from 0!!!
     void virtual imageReady(IntegerType* frame_no, const ushort* image_buffer);
 
     // is invoked every time acquisition proccess was started
@@ -403,18 +404,20 @@ protected:
     void setInitialState();
 
 
-        /*  exposure control   */
+        /*  acqusition control   */
 
-    IntegerType _frameCounts; // number of frames per aqcuisition proccess
+    IntegerType _frameCounts; // number of frames per acquisition proccess
     IntegerType _currentBuffer;
 
+    long _imageXDim;
+    long _imageYDim;
     std::vector<std::unique_ptr<ushort[]>> _imageBuffer; // image buffers addresses
     size_t _currentBufferLength;
 
     fitsfile* _fitsFilePtr;
     std::string _fitsFilename;
     std::string _fitsHdrFilename;
-    std::string _fitsMultiImageFormat;
+    std::string _fitsDataFormat;
 
     EagleCamera::EagleCameraError _lastCameraError;
     int _lastXCLIBError;

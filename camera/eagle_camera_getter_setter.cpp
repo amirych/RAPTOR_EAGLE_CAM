@@ -1,4 +1,6 @@
 #include <eagle_camera.h>
+#include <eagle_camera_init_defs.h>
+
 #include <cmath>
 
                      /*******************************************
@@ -235,11 +237,11 @@ EagleCamera::IntegerType EagleCamera::getROIHeight()
 void EagleCamera::setShutterState(const std::string val)
 {
     unsigned char v;
-    if ( !val.compare("CLOSED") )  {
+    if ( !val.compare(EAGLE_CAMERA_FEATURE_SHUTTER_STATE_CLOSED) )  {
         v = 0x0;
-    } else if ( !val.compare("OPEN") )  {
+    } else if ( !val.compare(EAGLE_CAMERA_FEATURE_SHUTTER_STATE_OPEN) )  {
         v = 0x1;
-    } else if ( !val.compare("EXP") )  {
+    } else if ( !val.compare(EAGLE_CAMERA_FEATURE_SHUTTER_STATE_EXP) )  {
         v = 0x2;
     }
 
@@ -256,13 +258,13 @@ std::string EagleCamera::getShutterState()
 
     switch (val[0]) {
         case 0x0:
-            value = "CLOSED";
+            value = EAGLE_CAMERA_FEATURE_SHUTTER_STATE_CLOSED;
             break;
         case 0x1:
-            value = "OPEN";
+            value = EAGLE_CAMERA_FEATURE_SHUTTER_STATE_OPEN;
             break;
         case 0x2:
-            value = "EXP";
+            value = EAGLE_CAMERA_FEATURE_SHUTTER_STATE_EXP;
             break;
         default:
             logMessageStream.str("");
@@ -319,7 +321,7 @@ void EagleCamera::setTECState(const std::string val)
     unsigned char ctrl_reg = getCtrlRegister();
     bool flag;
 
-    if ( !val.compare("ON") ) {
+    if ( !val.compare(EAGLE_CAMERA_FEATURE_TEC_STATE_ON) ) {
         flag = true;
     } else {
         flag = false;
@@ -332,9 +334,9 @@ void EagleCamera::setTECState(const std::string val)
 std::string EagleCamera::getTECState()
 {
     unsigned char ctrl_reg = getCtrlRegister();
-    std::string val = "OFF";
+    std::string val = EAGLE_CAMERA_FEATURE_TEC_STATE_OFF;
 
-    if ( is_tec_enabled(ctrl_reg) ) val = "ON";
+    if ( is_tec_enabled(ctrl_reg) ) val = EAGLE_CAMERA_FEATURE_TEC_STATE_ON;
 
     return val;
 }
@@ -418,7 +420,7 @@ void EagleCamera::setReadoutRate(const std::string val)
     byte_vector_t addr = {0xA3, 0xA4};
     byte_vector_t v = {0x43, 0x80}; // for 75 kHz
 
-    if ( !val.compare("FAST") ) v = {0x02, 0x02};
+    if ( !val.compare(EAGLE_CAMERA_FEATURE_READOUT_RATE_FAST) ) v = {0x02, 0x02};
 
     writeRegisters(addr, v);
 }
@@ -432,9 +434,9 @@ std::string EagleCamera::getReadoutRate()
     byte_vector_t v = readRegisters(addr);
 
     if ( (v[0] == 0x02) && (v[1] == 0x02) ) {
-        value = "FAST";
+        value = EAGLE_CAMERA_FEATURE_READOUT_RATE_FAST;
     } else if ( (v[0] == 0x43) && (v[1] == 0x80) ) {
-        value = "SLOW";
+        value = EAGLE_CAMERA_FEATURE_READOUT_RATE_SLOW;
     } else {
         logMessageStream.str("");
         logMessageStream << "Unexpected FPGA registers values (got [" << std::hex << (int)v[0] << std::dec << ", "
@@ -451,7 +453,7 @@ void EagleCamera::setReadoutMode(const std::string val)
     byte_vector_t addr = {0xF7};
     byte_vector_t v = {0x01}; // for normal mode
 
-    if ( !val.compare("TEST") ) v = {0x04};
+    if ( !val.compare(EAGLE_CAMERA_FEATURE_READOUT_MODE_TEST) ) v = {0x04};
 
     writeRegisters(addr,v);
 }
@@ -465,9 +467,9 @@ std::string EagleCamera::getReadoutMode()
     byte_vector_t v = readRegisters(addr);
 
     if ( v[0] == 0x01 ) {
-        value = "NORMAL";
+        value = EAGLE_CAMERA_FEATURE_READOUT_MODE_NORMAL;
     } else if ( v[0] == 0x04 ) {
-        value = "TEST";
+        value = EAGLE_CAMERA_FEATURE_READOUT_MODE_TEST;
     } else {
         logMessageStream.str("");
         logMessageStream << "Unexpected FPGA registers values (got " << std::hex << (int)v[0] << std::dec << ")";
@@ -533,7 +535,7 @@ void EagleCamera::setPreAmpGain(const std::string val)
 
     bool flag;
 
-    if ( !val.compare("HIGH") ) {
+    if ( !val.compare(EAGLE_CAMERA_FEATURE_PREAMP_GAIN_HIGH) ) {
         flag = true;
     } else {
         flag = false;
@@ -550,9 +552,9 @@ std::string EagleCamera::getPreAmpGain()
     std::string value;
 
     if ( is_high_gain_enabled(ctrl_reg) ) {
-        value = "HIGH";
+        value = EAGLE_CAMERA_FEATURE_PREAMP_GAIN_HIGH;
     } else {
-        value = "LOW";
+        value = EAGLE_CAMERA_FEATURE_PREAMP_GAIN_LOW;
     }
 
     return value;
