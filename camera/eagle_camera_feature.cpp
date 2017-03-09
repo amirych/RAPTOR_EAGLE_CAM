@@ -103,11 +103,17 @@ EagleCamera::CameraFeatureProxy & EagleCamera::CameraFeatureProxy::operator = (c
 
     // check for valid value
     if ( f->range().size() ) {
-        auto it = f->range().begin();
-        for ( ; it != f->range().end(); ++it ) {
-            if ( !val.compare(*it) ) break;
+//        auto it = f->range().begin();
+//        for ( ; it != f->range().end(); ++it ) {
+//            printf("*IT = %s\n",*it.c_str());
+//            if ( !val.compare(*it) ) break;
+//        }
+        size_t i;
+        for ( i = 0; i < f->range().size(); ++i ) {
+            if ( !val.compare(f->range()[i]) ) break;
         }
-        if ( it == f->range().end() ) {
+//        if ( it == f->range().end() ) {
+        if ( i == f->range().size() ) {
             throw EagleCameraException(0,EagleCamera::Error_InvalidFeatureValue, "Invalid value for String Feature!");
         }
     }

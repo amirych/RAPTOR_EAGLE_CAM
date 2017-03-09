@@ -274,8 +274,8 @@ void EagleCamera::InitCameraFeatures()
                ));
 
 
-    PREDEFINED_CAMERA_FEATURES["EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_NAME"] = std::unique_ptr<EagleCamera::CameraAbstractFeature>(
-            new EagleCamera::CameraFeature<std::string>( "EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_NAME",
+    PREDEFINED_CAMERA_FEATURES[EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_NAME] = std::unique_ptr<EagleCamera::CameraAbstractFeature>(
+            new EagleCamera::CameraFeature<std::string>( EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_NAME,
                     EagleCamera::ReadWrite, {EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_EXTEN, EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_CUBE},
                     [this]() {return _fitsDataFormat;},
                     [this](const std::string ff){_fitsDataFormat = ff;}

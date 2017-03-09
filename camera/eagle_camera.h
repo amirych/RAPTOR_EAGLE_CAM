@@ -154,7 +154,7 @@ public:
     // size of the buffer is in _currentBufferLength.
     // in 'frame_no' a sequence number of frame for 'image_buffer' will be returned.
     // 'frame_no' starts from 0!!!
-    void virtual imageReady(IntegerType* frame_no, const ushort* image_buffer);
+    void virtual imageReady(const IntegerType frame_no, const ushort* image_buffer);
 
     // is invoked every time acquisition proccess was started
     void virtual acquisitionIsAboutToStart();
@@ -447,6 +447,7 @@ protected:
     std::string _fitsFilename;
     std::string _fitsHdrFilename;
     std::string _fitsDataFormat;
+    std::mutex _fitsWritingMutex;
 
     EagleCamera::EagleCameraError _lastCameraError;
     int _lastXCLIBError;
@@ -455,8 +456,9 @@ protected:
 
         /*  capturing control  */
 
-    void captureImage(const double timeout) NOEXCEPT_DECL; // timeout is in seconds
-    void captureAndCopyImage(IntegerType frame_no, const double timeout) NOEXCEPT_DECL; // timeout is in seconds
+
+    // timeout is in seconds
+    void captureAndCopyImage(const IntegerType buff_no, const IntegerType frame_no, const double timeout) NOEXCEPT_DECL;
     std::vector<std::future<void>> _copyFramebuffersFuture;
     std::atomic<bool> _stopCapturing;
 
@@ -619,6 +621,15 @@ protected:
 
 
         /*  auxiliary methods  */
+
+    int XCLIB_API_CALL(int err_code, const char *context);
+//    int XCLIB_API_CALL(int err_code, const std::string &context);
+    int XCLIB_API_CALL(int err_code, const std::string &context, const char *res = nullptr, const int res_len = 0);
+
+    int CFITSIO_API_CALL(int err_code, const char *context);
+    int CFITSIO_API_CALL(int err_code, const std::string &context);
+
+
 
     std::stringstream logMessageStream;
     std::mutex logMessageStreamMutex;
