@@ -820,6 +820,8 @@ int EagleCamera::cl_read(byte_vector_t &data,  const bool all)
         return nbytes;
     }
 
+    int N = nbytes;
+
     if ( !all ) {
         nbytes = data.size() + info_len;
     } else { // just read all available bytes in Rx-buffer
@@ -834,8 +836,6 @@ int EagleCamera::cl_read(byte_vector_t &data,  const bool all)
         XCLIB_API_CALL( pxd_serialRead(cameraUnitmap, 0, buff_ptr, nbytes), logMessageStream.str(),
                         buff_ptr, nbytes);
     } else {
-        int N = 0;
-
         std::chrono::milliseconds timeout{10000};
         size_t timeout_count = timeout.count();
 
