@@ -22,16 +22,20 @@ int main(int argc, char* argv[])
 
         cout << tt.value() << "\n";
 
-        cam["FrameCount"] = 2;
+        if ( argc > 2 ) {
+            cam["FrameCount"] = atoi(argv[2]);
+        } else cam["FrameCount"] = 1;
 
         cam["FitsFilename"] = "z.fits";
+        cam["FitsHdrFilename"] = "z.hdr";
 
-        cam["ShutterState"] = "CLOSED";
+        cam["ShutterState"] = "EXP";
+
+//        cam["FitsDataFormat"] = "CUBE";
+        cam["FitsDataFormat"] = "EXTEN";
 
         cam("EXPSTART");
 
-        std::cout << "sleep ...\n";
-        std::this_thread::sleep_for(std::chrono::seconds(5));
     } catch ( EagleCameraException &ex ) {
         cout << "ERROR: " << ex.what() << "\n";
     }

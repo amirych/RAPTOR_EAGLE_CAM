@@ -58,6 +58,10 @@
 
                             /*   definitions   */
 
+#define EAGLE_CAMERA_DEFAULT_CAPTURING_TIMEOUT_GAP 120 // in seconds. default timeout portion to be added to exposure time.
+                                                       // the final timeout is one for capturing proccess
+                                                       // (see doSnap XCLIB function)
+
 #define EAGLE_CAMERA_DEFAULT_BUFFER_TIMEOUT 10  // default timeout in seconds for captured image buffer copying proccess
 #define EAGLE_CAMERA_DEFAULT_ACQUISITION_POLL_INTERVAL 100 // default interval in milliseconds for polling of acquisition
                                                            // proccess
@@ -67,6 +71,9 @@
 // FITS keywords name to be written
 
 #define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_ORIGIN "Acquisition system"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_DATEOBS "Start of the exposure in UTC"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_DATE "Date of the HDU creation in UTC"
+
 
 #define EAGLE_CAMERA_FITS_KEYWORD_NAME_STARTX "CRVAL1"
 #define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_STARTX "Start pixel along X-axis"
@@ -124,7 +131,7 @@ public:
                             Error_ReadOnlyFeature, Error_WriteOnlyFeature,
                             Error_FeatureValueIsOutOfRange, Error_InvalidFeatureValue,
                             Error_UnexpectedFPGAValue,
-                            Error_CopyBufferTimeout,
+                            Error_AcquisitionProccessError, Error_CopyBufferTimeout,
                             Error_OK = 0,
                             // errors from EAGLE V 4240 Instruction Manual
                             Error_ETX_SER_TIMEOUT = 0x51, Error_ETX_CK_SUM_ERR,
@@ -155,12 +162,6 @@ public:
     // in 'frame_no' a sequence number of frame for 'image_buffer' will be returned.
     // 'frame_no' starts from 0!!!
     void virtual imageReady(const IntegerType frame_no, const ushort* image_buffer);
-
-    // is invoked every time acquisition proccess was started
-    void virtual acquisitionIsAboutToStart();
-
-    // is invoked every time acquisition proccess was stopped
-    void virtual acquisitionIsAboutToStop();
 
     void logToFile(const EagleCamera::EagleCameraLogIdent ident, const std::string &log_str, const int indent_tabs = 0);
     void logToFile(const EagleCameraException &ex, const int indent_tabs = 0);
@@ -440,6 +441,8 @@ protected:
 
     long _imageXDim;
     long _imageYDim;
+    double _expTime;
+    std::vector<std::string> _startExpTimestamp;
     std::vector<std::unique_ptr<ushort[]>> _imageBuffer; // image buffers addresses
     size_t _currentBufferLength;
 
@@ -454,12 +457,13 @@ protected:
     std::atomic<bool> _acquiringFinished;
     long _acquisitionProccessPollingInterval; // in milliseconds
 
-        /*  capturing control  */
+    std::promise<void> _acquisitionProccessPromise;
+    std::future<void> _acquisitionProccessFuture;
 
+    long _capturingTimeoutGap;
 
-    // timeout is in seconds
-    void captureAndCopyImage(const IntegerType buff_no, const IntegerType frame_no, const double timeout) NOEXCEPT_DECL;
-    std::vector<std::future<void>> _copyFramebuffersFuture;
+//    std::vector<std::future<void>> _copyFramebuffersFuture;
+    std::vector<std::future<int>> _copyFramebuffersFuture;
     std::atomic<bool> _stopCapturing;
 
 

@@ -22,7 +22,7 @@
                             /*  Auxiliary functions */
 
 
-static std::string time_stamp()
+static std::string time_stamp(const char* fmt = nullptr, bool utc = false)
 {
     auto now = std::chrono::system_clock::now();
     auto now_c = std::chrono::system_clock::to_time_t(now);
@@ -30,9 +30,17 @@ static std::string time_stamp()
     char time_stamp[100];
 
     struct std::tm buff;
-    buff = *localtime(&now_c);
+    if ( utc ) {
+        buff = *gmtime(&now_c);
+    } else {
+        buff = *localtime(&now_c);
+    }
 
-    strftime(time_stamp,sizeof(time_stamp),"%c",&buff);
+    if ( !fmt ) {
+        strftime(time_stamp,sizeof(time_stamp),"%c",&buff);
+    } else {
+        strftime(time_stamp,sizeof(time_stamp),fmt,&buff);
+    }
 
     return std::string(time_stamp);
 }
@@ -70,7 +78,11 @@ EagleCamera::EagleCamera(const char *epix_video_fmt_filename):
     CL_ACK_BIT_ENABLED(CL_DEFAULT_ACK_ENABLED), CL_CHK_SUM_BIT_ENABLED(CL_DEFAULT_CK_SUM_ENABLED),
 
     _frameBuffersNumber(0), _frameCounts(1),
+    _startExpTimestamp(), _expTime(0),
     _imageBuffer(), _currentBufferLength(0),
+    _capturingTimeoutGap(EAGLE_CAMERA_DEFAULT_CAPTURING_TIMEOUT_GAP),
+    _acquisitionProccessPromise(), _acquisitionProccessFuture(),
+
     _copyFramebuffersFuture(),
     _acquisitionProccessPollingInterval(EAGLE_CAMERA_DEFAULT_ACQUISITION_POLL_INTERVAL),
     _stopCapturing(true), _acquiringFinished(true),
@@ -119,6 +131,10 @@ EagleCamera::EagleCamera(const std::string & epix_video_fmt_filename):
 
 EagleCamera::~EagleCamera()
 {
+    if ( !_acquiringFinished ) {
+        _acquisitionProccessFuture.get(); // wait for acquiring ...  TODO: stop proccess ???!!!
+    }
+
     --createdObjects;
 
     if ( !createdObjects ) {
@@ -249,7 +265,8 @@ void EagleCamera::setInitialState()
 {
 //    setTriggerMode(false, false, false, false, false, false); // IDLE mode
     setTriggerMode(0x0);  // IDLE mode
-    setCtrlRegister(true, false, true); // gain to HIGH, TEC is ON
+//    setCtrlRegister(true, false, true); // gain to HIGH, TEC is ON
+    setCtrlRegister(true, false, false); // gain to HIGH, TEC is ON
 
     setXBIN(1);
     setYBIN(1);
@@ -294,6 +311,8 @@ void EagleCamera::resetCamera() // full reset (microcontroller and FPGA)
 
 void EagleCamera::startAcquisition()
 {
+    // main thread blocking part:
+
     _stopCapturing = false;
 
     _lastCameraError = EagleCamera::Error_OK;
@@ -301,9 +320,7 @@ void EagleCamera::startAcquisition()
 
     _imageXDim = (*this)["ROIWidth"];
     _imageYDim = (*this)["ROIHeight"];
-    double expTime = (*this)["ExposureTime"];
-
-    double timeout = expTime + 180.0;
+    _expTime = (*this)["ExposureTime"];
 
     long Nelem = _imageXDim*_imageYDim;
     std::cout << "NELEMS = " << Nelem << " ( WxH = " << _imageXDim << "x" << _imageYDim << ")\n";
@@ -316,246 +333,231 @@ void EagleCamera::startAcquisition()
                 _imageBuffer[i] = std::unique_ptr<ushort[]>(new ushort[_currentBufferLength]);
             }
         }
+        _startExpTimestamp.resize(Nbuffs);
     } catch ( std::bad_alloc ) {
         throw EagleCameraException(0, EagleCamera::Error_MemoryAllocation, "Cannot allocate memory for image buffer");
     }
 
+
 //    std::vector<std::future<void>> copy_buffer(Nbuffs);
 
-    acquisitionIsAboutToStart();
+
+//    acquisitionIsAboutToStart();
 
     _acquiringFinished = false;
 
     // start acquisition proccess in separate thread ...
 
+    _acquisitionProccessFuture = _acquisitionProccessPromise.get_future();
+
     auto run_exp = std::async(std::launch::async, [&]{
 
-        std::function<void()> waitCopyThreads = [&]{
-            for (size_t i = 0; i < _copyFramebuffersFuture.size(); ++i)
-                _copyFramebuffersFuture[i].wait_for(std::chrono::seconds(EAGLE_CAMERA_DEFAULT_BUFFER_TIMEOUT));
-        };
+//        std::function<void()> waitCopyThreads = [&]{
+//            for (size_t i = 0; i < _copyFramebuffersFuture.size(); ++i)
+//                _copyFramebuffersFuture[i].wait_for(std::chrono::seconds(EAGLE_CAMERA_DEFAULT_BUFFER_TIMEOUT));
+//        };
 
-        _currentBuffer = 1;
 
-        for ( size_t i_frame = 0; i_frame < _frameCounts; ++i_frame ) {
-            std::cout << "I_FRAME = " << i_frame << "\n";
-            if ( _stopCapturing ) { // user abort acquiring process
-                waitCopyThreads();
-                break;
+        try {
+            // create FITS file
+
+            int status = 0;
+            std::unique_ptr<long[]> naxes;
+            long naxis = 2;
+
+            bool exten_format = (!_fitsDataFormat.compare(EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_EXTEN)) ? true : false;
+
+            if ( _frameCounts > 1 ) { // multi image
+                if ( exten_format ) { // FITS file is sequence of 2-dim IMAGE extentions
+                    naxes = std::unique_ptr<long[]>(new long[2]);
+                } else { // save image as a primary array cube
+                    naxis = 3;
+                    naxes = std::unique_ptr<long[]>(new long[3]);
+                    naxes[2] = _frameCounts;
+                }
+            } else {
+                naxes = std::unique_ptr<long[]>(new long[2]); // FITS file is just 2-dim primary array.
             }
 
-            // 'arm' grabber to capture image and, after that, copy
-            // image asynchronously from grabber framebuffer
-            auto run_capturing = std::async(std::launch::async,
-                &EagleCamera::captureAndCopyImage, this, _currentBuffer, i_frame, timeout
-            );
+            naxes[0] = _imageXDim;
+            naxes[1] = _imageYDim;
 
-            setTriggerMode(CL_TRIGGER_MODE_SNAPSHOT); // start single exposure
+            std::string filename = "!" + _fitsFilename; // add '!' to overwrite existing file
 
-            if ( _currentBuffer < _frameBuffersNumber ) ++_currentBuffer;
-            else _currentBuffer = 1;
+            formatFitsLogMessage("fits_create_file",filename,(void*)&status);
 
-            if ( _stopCapturing ) { // user abort acquiring process
-                std::cout << "wait for copy thread ... ";
-                waitCopyThreads();
-                std::cout << "  Done.\n";
-                break;
+            CFITSIO_API_CALL( fits_create_file(&_fitsFilePtr, filename.c_str(), &status), logMessageStream.str() );
+
+            std::string date_str;
+
+            if ( exten_format && (_frameCounts > 1) ) { // multi-extension FITS file
+                // creating empty primary array
+                formatFitsLogMessage("fits_create_img",USHORT_IMG,0,0,(void*)&status);
+                CFITSIO_API_CALL( fits_create_img(_fitsFilePtr,USHORT_IMG,0,0,&status), logMessageStream.str());
+
+                // write 'DATE' keyword into primary HDU
+
+                date_str = time_stamp("%Y-%m-%dT%H-%M-%S", true);
+                formatFitsLogMessage("fits_update_key", TSTRING, "DATE", date_str,
+                                     EAGLE_CAMERA_FITS_KEYWORD_COMMENT_DATE, (void*)&status);
+                CFITSIO_API_CALL( fits_update_key(_fitsFilePtr, TSTRING, "DATE", (void*)date_str.c_str(),
+                                                  EAGLE_CAMERA_FITS_KEYWORD_COMMENT_DATE, &status),
+                                  logMessageStream.str());
+
+                // create extensions
+                for ( size_t i = 0; i < _frameCounts; ++i ) {
+                    CFITSIO_API_CALL( fits_create_img(_fitsFilePtr,USHORT_IMG,naxis,naxes.get(),&status),
+                                      logMessageStream.str());
+                }
+
+            } else {
+                formatFitsLogMessage("fits_create_img",USHORT_IMG,naxis,naxes.get(),(void*)&status);
+                CFITSIO_API_CALL( fits_create_img(_fitsFilePtr,USHORT_IMG,naxis,naxes.get(),&status),
+                                  logMessageStream.str());
+
+                // write 'DATE' keyword
+
+                date_str = time_stamp("%Y-%m-%dT%H-%M-%S", true);
+                formatFitsLogMessage("fits_update_key", TSTRING, "DATE", date_str,
+                                     EAGLE_CAMERA_FITS_KEYWORD_COMMENT_DATE, (void*)&status);
+                CFITSIO_API_CALL( fits_update_key(_fitsFilePtr, TSTRING, "DATE", (void*)date_str.c_str(),
+                                                  EAGLE_CAMERA_FITS_KEYWORD_COMMENT_DATE, &status),
+                                  logMessageStream.str());
             }
 
-            std::cout << "CHK COPY THR STAT ...";
+            char col[] = "Gray";
 
-            // wait for end of copy operation of previous (in circular manner) buffer with the same ID
-            if ( i_frame >= _frameBuffersNumber ) {
-                std::cout << "\nwait_for " << EAGLE_CAMERA_DEFAULT_BUFFER_TIMEOUT << "secs ..." <<
-                             "( buff_no = " << _currentBuffer << ", frame_no = " << i_frame << ")";
-                auto status = _copyFramebuffersFuture[_currentBuffer].wait_for(
-                            std::chrono::seconds(EAGLE_CAMERA_DEFAULT_BUFFER_TIMEOUT));
-                std::cout << "  done\n";
-                if ( status == std::future_status::timeout ) {
-                    _lastCameraError = EagleCamera::Error_CopyBufferTimeout;
-                    _stopCapturing = true;
+            double timeout = _expTime + _capturingTimeoutGap;
+
+//            IntegerType n_blocks = 0;
+            IntegerType Nbuffers;
+            if (_frameCounts < _frameBuffersNumber ) {
+                Nbuffers = _frameCounts;
+            } else {
+                Nbuffers = _frameBuffersNumber;
+            }
+
+            for ( IntegerType i_frame = 0; i_frame < _frameCounts; ++i_frame ) {
+                std::cout << "I_FRAME = " << i_frame << "\n";
+                if ( _stopCapturing ) { // user abort acquiring process
+//                    waitCopyThreads();
                     break;
                 }
+
+
+                std::cout << "Nbuffers = " << Nbuffers << "\n";
+
+                std::function<int(int,IntegerType,ushort*,size_t,char*)> read_buff_func =
+                        [](int unitmap,IntegerType buff_no,ushort* buff,size_t buff_len,char*  col) {
+                    return pxd_readushort(unitmap, buff_no, 0, 0, -1, -1,
+                                          buff, buff_len, col);
+                };
+
+                for ( _currentBuffer = 1; _currentBuffer <= Nbuffers; ++_currentBuffer ) {
+                    // 'arm' grabber to capture image
+                    auto run_capture = std::async(std::launch::async,
+                            [&]{return pxd_doSnap(cameraUnitmap, _currentBuffer, (ulong)timeout*1000);}
+                    );
+
+                    std::cout << "\nEXP START\n";
+                    _startExpTimestamp[_currentBuffer-1] = time_stamp("%Y-%m-%dT%H-%M-%S", true);
+                    setTriggerMode(CL_TRIGGER_MODE_SNAPSHOT); // start single exposure
+                    std::cout << "\nEXP END\n";
+
+                    formatLogMessage("pxd_doSnap", _currentBuffer, (ulong)timeout*1000);
+                    XCLIB_API_CALL( run_capture.get(), logMessageStream.str());
+
+//                    formatLogMessage("pxd_readushort",_currentBuffer, 0,0,-1,-1,
+//                                     (void*)_imageBuffer[_currentBuffer-1].get(),_currentBufferLength,col);
+
+//                    XCLIB_API_CALL(pxd_readushort(cameraUnitmap, _currentBuffer, 0, 0, -1, -1,
+//                                                  _imageBuffer[_currentBuffer-1].get(), _currentBufferLength, (char*)col),
+//                                   logMessageStream.str());
+
+//                    imageReady(i_frame+_currentBuffer-1,_imageBuffer[_currentBuffer-1].get());
+
+                    // run buffer coping asynchronously ...
+                    _copyFramebuffersFuture[_currentBuffer-1] =
+                            std::async(std::launch::async, read_buff_func, cameraUnitmap, _currentBuffer,
+                                       _imageBuffer[_currentBuffer-1].get(), _currentBufferLength, col);
+                };
+
+                std::cout << "CHK COPY THR STAT ...";
+
+                // waiting for copying proccesses ...
+                for (size_t i = 0; i < Nbuffers; ++i) {
+                    auto wstatus =  _copyFramebuffersFuture[i].wait_for(std::chrono::seconds(EAGLE_CAMERA_DEFAULT_BUFFER_TIMEOUT));
+                    if ( wstatus == std::future_status::timeout ) {
+                        throw EagleCameraException(0,EagleCamera::Error_CopyBufferTimeout,"Capturing image timeout");
+                    }
+                    formatLogMessage("pxd_readushort",i+1, 0,0,-1,-1,
+                                     (void*)_imageBuffer[i].get(),_currentBufferLength,col);
+                    XCLIB_API_CALL( _copyFramebuffersFuture[i].get(), logMessageStream.str());
+
+                    imageReady(i_frame+i,_imageBuffer[i].get());
+                }
+
+                std::cout << "  OK\nSave FITS ...";
+//                std::cout << "\nSave FITS ...";
+
+                // save images to FITS file
+
+                if ( !_fitsDataFormat.compare(EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_EXTEN) && (_frameCounts > 1) ) {
+
+                    for (size_t i = 0; i < Nbuffers; ++i, ++i_frame) {
+                        // move to extension
+                        formatFitsLogMessage("fits_movabs_hdu",  i_frame+2, 0, (void*)&status);
+                        CFITSIO_API_CALL( fits_movabs_hdu(_fitsFilePtr, i_frame+2, nullptr, &status),
+                                          logMessageStream.str()  );
+
+                        // write 'DATE-OBS'
+
+                        formatFitsLogMessage("fits_update_key", TSTRING, "DATE-OBS", _startExpTimestamp[i],
+                                             EAGLE_CAMERA_FITS_KEYWORD_COMMENT_DATEOBS, (void*)&status);
+                        CFITSIO_API_CALL( fits_update_key(_fitsFilePtr, TSTRING, "DATE-OBS", (void*)_startExpTimestamp[i].c_str(),
+                                                          EAGLE_CAMERA_FITS_KEYWORD_COMMENT_DATEOBS, &status),
+                                          logMessageStream.str());
+
+                        // write image
+                        formatFitsLogMessage("fits_write_img", TUSHORT, 1, _currentBufferLength,
+                                             (void*)_imageBuffer[i].get(), (void*)&status);
+                        CFITSIO_API_CALL( fits_write_img(_fitsFilePtr, TUSHORT, 1, _currentBufferLength,
+                                                         (void*)_imageBuffer[i].get(), &status),
+                                          logMessageStream.str() );
+                    }
+                } else {
+                    if ( i_frame == 0 ) {
+                        // write 'DATE-OBS'
+                        formatFitsLogMessage("fits_update_key", TSTRING, "DATE-OBS", _startExpTimestamp[0],
+                                             EAGLE_CAMERA_FITS_KEYWORD_COMMENT_DATEOBS, (void*)&status);
+                        CFITSIO_API_CALL( fits_update_key(_fitsFilePtr, TSTRING, "DATE-OBS", (void*)_startExpTimestamp[0].c_str(),
+                                                          EAGLE_CAMERA_FITS_KEYWORD_COMMENT_DATEOBS, &status),
+                                          logMessageStream.str());
+                    }
+                    for (size_t i = 0; i < Nbuffers; ++i, ++i_frame) {
+                        long first_pix = i_frame*_imageXDim*_imageYDim + 1;
+                        formatFitsLogMessage("fits_write_img", TUSHORT, first_pix, _currentBufferLength,
+                                             (void*)_imageBuffer[i].get(), (void*)&status);
+                        CFITSIO_API_CALL( fits_write_img(_fitsFilePtr, TUSHORT, first_pix, _currentBufferLength,
+                                                         (void*)_imageBuffer[i].get(), &status), logMessageStream.str() );
+                    }
+                }
+
+//                ++n_blocks;
+
+//                Nbuffers = _frameCounts - n_blocks*_frameBuffersNumber; // frames remain
+                Nbuffers = _frameCounts - i_frame; // frames remain
+                if ( Nbuffers > _frameBuffersNumber) {
+                    Nbuffers = _frameBuffersNumber;
+                }
+
+                --i_frame; // needs because of extra increment in the 'for' cycle above
+
+                std::cout << "  OK\n";
+                std::cout << "i_frame = " << i_frame << "\n";
             }
 
-            std::cout << "  OK\n";
-        }
-
-        std::cout << "END OF ACQ\n";
-        _acquiringFinished = true;
-    });
-
-
-    // start polling a state of acquisition proccess
-
-    auto pollAcqProccess = std::async(std::launch::async, [&] {
-        while ( !_acquiringFinished ) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(_acquisitionProccessPollingInterval));
-            if ( _stopCapturing ) _acquiringFinished = true;
-        }
-        acquisitionIsAboutToStop();
-    });
-}
-
-
-void EagleCamera::stopAcquisition()
-{
-    setTriggerMode(CL_TRIGGER_MODE_ABORT_CURRENT_EXP); // set abort exp bit
-    _stopCapturing = true;
-}
-
-
-void EagleCamera::acquisitionIsAboutToStart()
-{
-    if ( !_fitsFilename.compare("") ) return;
-
-    // create FITS file
-    try {
-        int status = 0;
-        std::unique_ptr<long[]> naxes;
-        long naxis = 2;
-
-//        IntegerType xsize = (*this)["ROIWidth"];
-//        IntegerType ysize = (*this)["ROIHeight"];
-
-        bool exten_format = (!_fitsDataFormat.compare(EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_EXTEN)) ? true : false;
-
-        if ( _frameCounts > 1 ) { // multi image
-            if ( exten_format ) { // FITS file is sequence of 2-dim IMAGE extentions
-                naxes = std::unique_ptr<long[]>(new long[2]);
-            } else { // save image as a primary array cube
-                naxis = 3;
-                naxes = std::unique_ptr<long[]>(new long[3]);
-                naxes[2] = _frameCounts;
-            }
-        } else {
-            naxes = std::unique_ptr<long[]>(new long[2]); // FITS file is just 2-dim primary array.
-        }
-
-//        naxes[0] = xsize;
-//        naxes[1] = ysize;
-        naxes[0] = _imageXDim;
-        naxes[1] = _imageYDim;
-
-
-        std::string filename = "!" + _fitsFilename; // add '!' to overwrite existing file
-
-        formatFitsLogMessage("fits_create_file",filename,(void*)&status);
-
-        CFITSIO_API_CALL( fits_create_file(&_fitsFilePtr, filename.c_str(), &status), logMessageStream.str() );
-//        if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
-//            logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, logMessageStream.str());
-//        }
-
-        if ( exten_format && (_frameCounts > 1) ) { // multi-extension FITS file
-            // creating empty primary array
-            formatFitsLogMessage("fits_create_img",USHORT_IMG,0,0,(void*)&status);
-            CFITSIO_API_CALL( fits_create_img(_fitsFilePtr,USHORT_IMG,0,0,&status), logMessageStream.str());
-
-//            if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
-//                logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, logMessageStream.str());
-//            }
-
-            // create extensions
-            for ( size_t i = 0; i < _frameCounts; ++i ) {
-                CFITSIO_API_CALL( fits_create_img(_fitsFilePtr,USHORT_IMG,naxis,naxes.get(),&status), logMessageStream.str());
-            }
-
-        } else {
-            formatFitsLogMessage("fits_create_img",USHORT_IMG,naxis,naxes.get(),(void*)&status);
-            CFITSIO_API_CALL( fits_create_img(_fitsFilePtr,USHORT_IMG,naxis,naxes.get(),&status),
-                              logMessageStream.str());
-
-//            if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
-//                logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, logMessageStream.str());
-//            }
-        }
-    } catch ( EagleCameraException &ex ) {
-        if ( ex.Camera_Error() == EagleCamera::Error_FITS_ERR ) {
-            fits_close_file(_fitsFilePtr,nullptr);
-            _fitsFilePtr = nullptr;
-        }
-        throw ex;
-    } catch ( std::bad_alloc &ex ) {
-        throw EagleCameraException(0,EagleCamera::Error_MemoryAllocation, "Cannot allocate memory");
-    }
-}
-
-
-void EagleCamera::imageReady(const IntegerType frame_no, const ushort *image_buffer)
-{
-    if ( _fitsFilePtr ) {
-        _fitsWritingMutex.lock(); // only a single thread may write to FITS file!!!
-        int status = 0;
-        std::cout << "IMAGE READY: frm_no = " << frame_no << ", total = " << _frameCounts << "\n";
-        try {
-            if ( !_fitsDataFormat.compare(EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_EXTEN) &&
-                 (_frameCounts > 1) ) {
-//                // first, create an extension
-//                long naxes[] = {_imageXDim, _imageYDim};
-//                formatFitsLogMessage("fits_create_img",USHORT_IMG,2,(void*)naxes,(void*)&status);
-//                CFITSIO_API_CALL( fits_create_img(_fitsFilePtr,USHORT_IMG,2,naxes,&status),
-//                                  logMessageStream.str() );
-//                if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
-//                    logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, logMessageStream.str());
-//                }
-
-                // move to extension
-                formatFitsLogMessage("fits_movabs_hdu",  frame_no+2, 0, (void*)&status);
-                CFITSIO_API_CALL( fits_movabs_hdu(_fitsFilePtr, frame_no+2, nullptr, &status),
-                                  logMessageStream.str()  );
-                // write image
-                formatFitsLogMessage("fits_write_img", TUSHORT, 1, _currentBufferLength, (void*)image_buffer, (void*)&status);
-                CFITSIO_API_CALL( fits_write_img(_fitsFilePtr, TUSHORT, 1, _currentBufferLength, (void*)image_buffer, &status),
-                                  logMessageStream.str() );
-//                if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
-//                    logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, logMessageStream.str());
-//                }
-            } else {
-                long first_pix = frame_no*_imageXDim*_imageYDim + 1;
-                std::cout << "IMAGE READY: write pixels (len=" << _currentBufferLength << ", first_pix = " << first_pix
-                          << ") ...  ";
-                formatFitsLogMessage("fits_write_img", TUSHORT, first_pix, _currentBufferLength, (void*)image_buffer, (void*)&status);
-                CFITSIO_API_CALL( fits_write_img(_fitsFilePtr, TUSHORT, first_pix, _currentBufferLength,
-                                                 (void*)image_buffer, &status), logMessageStream.str() );
-//                if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
-//                    logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, logMessageStream.str());
-//                }
-                std::cout << "Done\n";
-            }
-        } catch ( EagleCameraException &ex ) {
-            std::cout << "IMAGE READY ERROR!!! " << status << "\n";
-            _lastCameraError = ex.Camera_Error();
-            _lastXCLIBError = ex.XCLIB_Error();
-            _stopCapturing = true;
-        }
-        _fitsWritingMutex.unlock();
-        std::cout << "IMAGE READY DONE.\n";
-    }
-}
-
-
-void EagleCamera::acquisitionIsAboutToStop()
-{
-    std::cout << "ABOUT TO STOP: START\n";
-    std::cout << "err = " << _lastCameraError << ", " << _lastXCLIBError << "\n";
-    // check for exit status of acquisition procsess
-    if ( (_lastCameraError != EagleCamera::Error_OK) || (_lastXCLIBError < 0) ) {
-        std::cout << "ABOUT TO STOP: ERROR IS DETECTED: err = " << _lastCameraError << "\n";
-        throw EagleCameraException(_lastXCLIBError, _lastCameraError, "Acquisition proccess failed");
-    }
-
-    if ( _fitsFilePtr ) {
-        int status = 0;
-
-        // wait for all capture-and-copy-image threads finished and close FITS file
-//        for (size_t i = 0; i < _copyFramebuffersFuture.size(); ++i)
-//            _copyFramebuffersFuture[i].wait_for(std::chrono::seconds(EAGLE_CAMERA_DEFAULT_BUFFER_TIMEOUT));
-
-        std::cout << "ABOUT TO STOP: WRITE KEYWORDS ...";
-
-        try {
-            _fitsWritingMutex.lock();
+            std::cout << "Save keywords ...\n";
 
             // move to primary HDU (needs if multiple extensions format was used)
             formatFitsLogMessage("fits_movabs_hdu", 1, 0, (void*)&status);
@@ -655,28 +657,51 @@ void EagleCamera::acquisitionIsAboutToStop()
                 formatFitsLogMessage("fits_write_key_template", _fitsHdrFilename, (void*)&status);
                 CFITSIO_API_CALL( fits_write_key_template(_fitsFilePtr, _fitsHdrFilename.c_str(),&status),
                                   logMessageStream.str());
-
-                if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
-                    logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, logMessageStream.str());
-                }
-
             }
-            _fitsWritingMutex.unlock();
 
-            formatFitsLogMessage("fits_close_file",0);
-            CFITSIO_API_CALL( fits_close_file(_fitsFilePtr,nullptr), logMessageStream.str());
+            formatFitsLogMessage("fits_close_file",(void*)&status);
+            CFITSIO_API_CALL( fits_close_file(_fitsFilePtr,&status), logMessageStream.str());
 
-            //        if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
-            //            logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, logMessageStream.str());
-            //        }
             std::cout << "  OK\n";
-        } catch ( EagleCameraException &ex) {
-            std::cout << "\nABOUT TO STOP: FITS ERROR OCCURED: " << ex.XCLIB_Error() << "\n";
-            _lastCameraError = ex.Camera_Error();
-            _lastXCLIBError = ex.XCLIB_Error();
+        } catch ( EagleCameraException &ex ) {
+            std::cout << "ACQ PROCCESS ERROR: " << ex.XCLIB_Error() << ", " << ex.Camera_Error() << "\n";
+            std::cout << "ACQ PROCCESS ERROR: " << ex.what() << "\n";
+            try {
+                if ( _fitsFilePtr ) CFITSIO_API_CALL( fits_close_file(_fitsFilePtr,NULL), "");
+                _acquisitionProccessPromise.set_exception(std::current_exception());
+            } catch (...) { // set_exception() may throw too
+                _lastCameraError = EagleCamera::Error_AcquisitionProccessError;
+            }
+        }
+
+        std::cout << "END OF ACQ\n";
+        _acquiringFinished = true;
+    });
+
+
+    // waiting for 100 millisecond and check errors ...
+
+    auto wstatus = _acquisitionProccessFuture.wait_for(std::chrono::milliseconds(100));
+    if ( wstatus != std::future_status::timeout ) {
+        _acquisitionProccessFuture.get(); // if an error occured an exception should be thrown
+
+        if ( _lastCameraError != EagleCamera::Error_OK ) {
+            throw EagleCameraException(0,_lastCameraError,"Acquisition proccess failed");
         }
     }
-    std::cout << "ABOUT TO STOP: END\n";
+
+}
+
+
+void EagleCamera::stopAcquisition()
+{
+    setTriggerMode(CL_TRIGGER_MODE_ABORT_CURRENT_EXP); // set abort exp bit
+    _stopCapturing = true;
+}
+
+
+void EagleCamera::imageReady(const IntegerType frame_no, const ushort *image_buffer)
+{
 }
 
 
@@ -773,50 +798,6 @@ void EagleCamera::logToFile(const EagleCameraException &ex, const int indent_tab
 
                             /*  PROTECTED METHODS  */
 
-
-// Capturing control
-
-void EagleCamera::captureAndCopyImage(const IntegerType buff_no, const IntegerType frame_no, const double timeout) NOEXCEPT_DECL
-{
-    std::cout << "CAPANDCOPY: timeout = " << timeout << " secs, buff_no = " << buff_no
-              << ", frame_no = " << frame_no << "\n";
-    ulong timeout_msecs = static_cast<ulong>(1000.0*timeout);
-
-    char col[] = "Gray";
-
-    ushort* buff_ptr = (_imageBuffer[buff_no-1]).get();
-
-    try {
-        formatLogMessage("pxd_doSnap", buff_no, timeout_msecs);
-        XCLIB_API_CALL( pxd_doSnap(cameraUnitmap, buff_no, timeout_msecs), logMessageStream.str());
-//        if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
-//            logToFile(EagleCamera::LOG_IDENT_XCLIB_INFO, logMessageStream.str());
-//        }
-
-        // ran asynchronously
-        _copyFramebuffersFuture[buff_no] = std::async(std::launch::async, [=] {
-            std::cout << "COPY IMAGE: buff_no = " << buff_no << " (" << _currentBuffer << ") " <<
-                         ", len = " << _currentBufferLength << "\n";
-            //                std::string log_str = "pxd_readushort(" + std::to_string(cameraUnitmap) + ", 0, 0, -1, -1, " +
-            //                        pointer_to_str(buff_ptr) + ", " + std::to_string(_currentBufferLength) + ", '" + col + "')";
-            formatLogMessage("pxd_readushort",buff_no, 0,0,-1,-1,(void*)buff_ptr,_currentBufferLength,col);
-            XCLIB_API_CALL( pxd_readushort(cameraUnitmap, buff_no, 0, 0, -1, -1,
-                                           buff_ptr, _currentBufferLength, (char*)col), logMessageStream.str() );
-
-            std::cout << "IMAGE IS COPIED\n";
-            imageReady(frame_no, buff_ptr); // invoke user's function to process buffer
-        });
-    } catch ( EagleCameraException &ex ) {
-        std::cout << "CPANDCOPY ERROR!\n";
-        _lastCameraError = ex.Camera_Error();
-        _lastXCLIBError = ex.XCLIB_Error();
-        _stopCapturing = true;
-    }
-    std::cout << "CAPANDCOPY: END\n";
-}
-
-
-
 // CAMERALINK serial port related methods
 
 int EagleCamera::cl_read(byte_vector_t &data,  const bool all)
@@ -833,9 +814,6 @@ int EagleCamera::cl_read(byte_vector_t &data,  const bool all)
 
     // how many byte available for reading ...
     XCLIB_API_CALL( nbytes = pxd_serialRead(cameraUnitmap,0,nullptr,0), logMessageStream.str() );
-//    if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
-//        logToFile(EagleCamera::LOG_IDENT_XCLIB_INFO, logXCLIB_Info(logMessageStream.str(),nbytes));
-//    }
 
     // special case
     if ( (data.size() == 0) && !info_len ) { // nothing to read
@@ -844,7 +822,6 @@ int EagleCamera::cl_read(byte_vector_t &data,  const bool all)
 
     if ( !all ) {
         nbytes = data.size() + info_len;
-//        buff = std::unique_ptr<char[]>(new char[nbytes]);
     } else { // just read all available bytes in Rx-buffer
         if ( !nbytes ) return nbytes; // no data? do not wait and return immediately!
     }
@@ -852,13 +829,35 @@ int EagleCamera::cl_read(byte_vector_t &data,  const bool all)
     buff = std::unique_ptr<char[]>(new char[nbytes]);
     buff_ptr = buff.get();
 
-    formatLogMessage("pxd_serialRead", 0, (void*)buff_ptr, nbytes);
-    XCLIB_API_CALL( pxd_serialRead(cameraUnitmap, 0, buff_ptr, nbytes), logMessageStream.str(),
-                    buff_ptr, nbytes);
-//    XCLIB_API_CALL( pxd_serialRead(cameraUnitmap, 0, buff_ptr, nbytes), logMessageStream.str() );
-//    if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
-//        logToFile(EagleCamera::LOG_IDENT_XCLIB_INFO, logXCLIB_Info(logMessageStream.str(),buff_ptr,nbytes));
-//    }
+    if ( all ) {
+        formatLogMessage("pxd_serialRead", 0, (void*)buff_ptr, nbytes);
+        XCLIB_API_CALL( pxd_serialRead(cameraUnitmap, 0, buff_ptr, nbytes), logMessageStream.str(),
+                        buff_ptr, nbytes);
+    } else {
+        int N = 0;
+
+        std::chrono::milliseconds timeout{10000};
+        size_t timeout_count = timeout.count();
+
+        auto start = std::chrono::system_clock::now();
+
+        while ( N < nbytes ) {
+            auto now = std::chrono::system_clock::now();
+            std::chrono::duration<double> diff = now-start;
+            if ( std::chrono::duration_cast<std::chrono::milliseconds>(diff).count() >= timeout_count ) {
+                EagleCameraException(PXERTIMEOUT,EagleCamera::Error_OK, logMessageStream.str());
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+            // how many byte available for reading ...
+            XCLIB_API_CALL( N = pxd_serialRead(cameraUnitmap,0,nullptr,0), logMessageStream.str() );
+        }
+
+        formatLogMessage("pxd_serialRead", 0, (void*)buff_ptr, nbytes);
+        XCLIB_API_CALL( pxd_serialRead(cameraUnitmap, 0, buff_ptr, nbytes), logMessageStream.str(),
+                        buff_ptr, nbytes);
+    }
 
     if ( all ) {
         data.resize(nbytes);
@@ -877,26 +876,40 @@ int EagleCamera::cl_read(byte_vector_t &data,  const bool all)
 
 int EagleCamera::cl_write(const byte_vector_t val)
 {
-    int nbytes;
+    int nbytes = 0;
+
+    formatLogMessage("pxd_serialWrite",0,NULL,0);
+    XCLIB_API_CALL( nbytes = pxd_serialWrite(cameraUnitmap, 0, NULL, 0), logMessageStream.str() );
 
     if ( val.size() == 0 ) { // special case
-        formatLogMessage("pxd_serialWrite",0,NULL,0);
-        XCLIB_API_CALL( nbytes = pxd_serialWrite(cameraUnitmap, 0, NULL, 0), logMessageStream.str() );
-
-//        if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
-//            logToFile( EagleCamera::LOG_IDENT_XCLIB_INFO, logXCLIB_Info(logMessageStream.str(), nbytes));
-//        }
+        return nbytes;
     } else {
         int N;
+
+        int UART_len = val.size() + 1; // '+1' for ETX-byte
+        if ( CL_CHK_SUM_BIT_ENABLED ) ++UART_len;
+
+        std::chrono::milliseconds timeout{10000};
+        size_t timeout_count = timeout.count();
+
+        auto start = std::chrono::system_clock::now();
+
+        while ( nbytes < UART_len ) {
+            auto now = std::chrono::system_clock::now();
+            std::chrono::duration<double> diff = now-start;
+            if ( std::chrono::duration_cast<std::chrono::milliseconds>(diff).count() >= timeout_count ) {
+                EagleCameraException(PXERTIMEOUT,EagleCamera::Error_OK, logMessageStream.str());
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+//            formatLogMessage("pxd_serialWrite",0,NULL,0);
+            XCLIB_API_CALL( nbytes = pxd_serialWrite(cameraUnitmap, 0, NULL, 0), logMessageStream.str() );
+        }
 
         formatLogMessage("pxd_serialWrite",0,(void*)val.data(),val.size());
         XCLIB_API_CALL( nbytes = pxd_serialWrite(cameraUnitmap, 0, (char*)val.data(), val.size()),
                         logMessageStream.str(), (char*)val.data(), val.size());
-
-//        XCLIB_API_CALL( nbytes = pxd_serialWrite(cameraUnitmap, 0, (char*)val.data(), val.size()), logMessageStream.str() );
-//        if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
-//            logToFile( EagleCamera::LOG_IDENT_XCLIB_INFO, logXCLIB_Info(logMessageStream.str(), nbytes));
-//        }
 
         // write mandatory End-of-Transmision byte
         char ack = CL_ETX;
@@ -904,11 +917,6 @@ int EagleCamera::cl_write(const byte_vector_t val)
         formatLogMessage("pxd_serialWrite",0,(void*)&ack,1);
         XCLIB_API_CALL( N = pxd_serialWrite(cameraUnitmap, 0, &ack, 1), logMessageStream.str(),
                         &ack, 1);
-
-//        XCLIB_API_CALL( N = pxd_serialWrite(cameraUnitmap, 0, &ack, 1), logMessageStream.str() );
-//        if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
-//            logToFile( EagleCamera::LOG_IDENT_XCLIB_INFO, logXCLIB_Info(logMessageStream.str(), N));
-//        }
 
         nbytes += N;
 
@@ -920,12 +928,6 @@ int EagleCamera::cl_write(const byte_vector_t val)
             formatLogMessage("pxd_serialWrite",0,(void*)&sum,1);
             XCLIB_API_CALL( N = pxd_serialWrite(cameraUnitmap, 0, &sum, 1),
                             logMessageStream.str(), &sum, 1 );
-
-//            XCLIB_API_CALL( N = pxd_serialWrite(cameraUnitmap, 0, &sum, 1), logMessageStream.str() );
-//            if ( logLevel == EagleCamera::LOG_LEVEL_VERBOSE ) {
-//                logToFile( EagleCamera::LOG_IDENT_XCLIB_INFO, logXCLIB_Info(logMessageStream.str(), N));
-//            }
-
             nbytes += N;
         }
     }
