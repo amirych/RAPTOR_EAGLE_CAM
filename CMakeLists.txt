@@ -18,11 +18,11 @@ endif()
 
 
 find_package(CFITSIO QUIET)
+
+if ( CFITSIO_FOUND )
     message(STATUS "CFITSIO IS FOUND!")
     message(STATUS "CFITSIO_INCLUDE_DIR: " ${CFITSIO_INCLUDE_DIR})
     message(STATUS "CFITSIO_LIBRARIES: " ${CFITSIO_LIBRARIES})
-if ( CFITSIO_FOUND )
-
 endif()
 
 

@@ -39,6 +39,7 @@
 #include <memory>
 #include <exception>
 #include <thread>
+#include <chrono>
 #include <future>
 #include <atomic>
 #include <mutex>
@@ -70,16 +71,21 @@
 
 // FITS keywords name to be written
 
+#define EAGLE_CAMERA_FITS_DATE_KEYWORD_FORMAT "%Y-%m-%dT%H-%M-%S" // format for DATE and DATE-OBS FITS-keywords
+
 #define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_ORIGIN "Acquisition system"
 #define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_DATEOBS "Start of the exposure in UTC"
 #define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_DATE "Date of the HDU creation in UTC"
 
 
 #define EAGLE_CAMERA_FITS_KEYWORD_NAME_STARTX "CRVAL1"
-#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_STARTX "Start pixel along X-axis"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_STARTX "Start pixel along X-axis in CCD pixels"
 
 #define EAGLE_CAMERA_FITS_KEYWORD_NAME_STARTY "CRVAL2"
-#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_STARTY "Start pixel along Y-axis"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_STARTY "Start pixel along Y-axis in CCD pixels"
+
+#define EAGLE_CAMERA_FITS_KEYWORD_NAME_EXPTIME "EXPTIME"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_EXPTIME "Integration time in seconds"
 
 #define EAGLE_CAMERA_FITS_KEYWORD_NAME_BINNING "BINNING"
 #define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_BINNING "Binning mode (XBINxYBIN)"
@@ -442,6 +448,8 @@ protected:
     long _imageXDim;
     long _imageYDim;
     double _expTime;
+    std::chrono::system_clock::time_point _startExpTimepoint;
+    std::chrono::system_clock::time_point _stopExpTimepoint;
     std::vector<std::string> _startExpTimestamp;
     std::vector<std::unique_ptr<ushort[]>> _imageBuffer; // image buffers addresses
     size_t _currentBufferLength;
@@ -660,6 +668,7 @@ protected:
     inline void logHelper(const std::string &str);
     inline void logHelper(const char* str);
     inline void logHelper(const void* addr);
+    inline void logHelper();
 
     // add to logging string (see formatLogMessage) return value of XCLIB functions in form "-> ret_val"
     inline std::string logXCLIB_Info(const std::string & str, const int result);
