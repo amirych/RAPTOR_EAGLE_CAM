@@ -8,7 +8,14 @@ int main(int argc, char* argv[])
 {
     try {
         EagleCamera cam("/home/timur/raptor_eagle-v.fmt");
-        if ( argc > 1 ) cam.setLogLevel(EagleCamera::LOG_LEVEL_ERROR);
+        if ( argc > 1 ) {
+            int fl = atoi(argv[1]);
+            if ( fl == 0 ) {
+                cam.setLogLevel(EagleCamera::LOG_LEVEL_ERROR);
+            } else {
+                cam.setLogLevel(EagleCamera::LOG_LEVEL_VERBOSE);
+            }
+        }
 
         cam.initCamera(1,&std::cout);
 
@@ -31,10 +38,15 @@ int main(int argc, char* argv[])
 
         cam["ShutterState"] = "EXP";
 
-//        cam["FitsDataFormat"] = "CUBE";
-        cam["FitsDataFormat"] = "EXTEN";
+        if ( argc > 3 ) {
+            cam["FitsDataFormat"] = "CUBE";
+        } else {
+            cam["FitsDataFormat"] = "EXTEN";
+        }
 
         cam("EXPSTART");
+//        std::this_thread::sleep_for(std::chrono::milliseconds(6134));
+//        cam("EXPSTOP");
 
     } catch ( EagleCameraException &ex ) {
         cout << "ERROR: " << ex.what() << "\n";

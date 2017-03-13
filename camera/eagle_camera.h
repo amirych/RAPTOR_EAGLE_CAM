@@ -442,6 +442,8 @@ protected:
 
         /*  acqusition control   */
 
+//    void saveFitsImage(const IntegerType frame_no, const std::string &date, const double exp_time, bool as_extension);
+
     IntegerType _frameCounts; // number of frames per acquisition proccess
     IntegerType _currentBuffer;
 
@@ -450,7 +452,7 @@ protected:
     double _expTime;
     std::chrono::system_clock::time_point _startExpTimepoint;
     std::chrono::system_clock::time_point _stopExpTimepoint;
-    std::vector<std::string> _startExpTimestamp;
+    std::string _startExpTimestamp;
     std::vector<std::unique_ptr<ushort[]>> _imageBuffer; // image buffers addresses
     size_t _currentBufferLength;
 
@@ -467,6 +469,7 @@ protected:
 
     std::promise<void> _acquisitionProccessPromise;
     std::future<void> _acquisitionProccessFuture;
+    std::future<void> _acquisitionProccessThreadFuture;
 
     long _capturingTimeoutGap;
 
@@ -506,7 +509,7 @@ protected:
 
     int cl_write(const byte_vector_t val = byte_vector_t()); // if val.size() == 0 return allowed number of bytes in Tx-buffer
 
-    int cl_exec(const byte_vector_t command, byte_vector_t &response, const long timeout = 500);  // execute 'command' and
+    int cl_exec(const byte_vector_t command, byte_vector_t &response, const long timeout = 10);  // execute 'command' and
                                                                                            // return 'response'
                                                                                            // 'timeout' is a timeout in millisecs
                                                                                            // between cl_write an cl_read commands
