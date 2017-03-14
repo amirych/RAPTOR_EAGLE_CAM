@@ -442,7 +442,9 @@ protected:
 
         /*  acqusition control   */
 
-//    void saveFitsImage(const IntegerType frame_no, const std::string &date, const double exp_time, bool as_extension);
+    void saveToFitsFile(const IntegerType frame_no, const IntegerType buff_no, const double exp_time, bool as_extension);
+
+    void doSnapAndCopy(const ulong timeout, const IntegerType frame_no, const IntegerType buff_no);
 
     IntegerType _frameCounts; // number of frames per acquisition proccess
     IntegerType _currentBuffer;
@@ -452,7 +454,7 @@ protected:
     double _expTime;
     std::chrono::system_clock::time_point _startExpTimepoint;
     std::chrono::system_clock::time_point _stopExpTimepoint;
-    std::string _startExpTimestamp;
+    std::vector<std::string> _startExpTimestamp;
     std::vector<std::unique_ptr<ushort[]>> _imageBuffer; // image buffers addresses
     size_t _currentBufferLength;
 
@@ -467,13 +469,10 @@ protected:
     std::atomic<bool> _acquiringFinished;
     long _acquisitionProccessPollingInterval; // in milliseconds
 
-    std::promise<void> _acquisitionProccessPromise;
-    std::future<void> _acquisitionProccessFuture;
     std::future<void> _acquisitionProccessThreadFuture;
 
     long _capturingTimeoutGap;
 
-//    std::vector<std::future<void>> _copyFramebuffersFuture;
     std::vector<std::future<int>> _copyFramebuffersFuture;
     std::atomic<bool> _stopCapturing;
 
@@ -483,7 +482,6 @@ protected:
     CameraFeatureProxy cameraFeature;
     CameraAbstractFeature *currentCameraFeature;
 
-//    static camera_feature_map_t PREDEFINED_CAMERA_FEATURES;
     camera_feature_map_t PREDEFINED_CAMERA_FEATURES;
     void InitCameraFeatures();
 

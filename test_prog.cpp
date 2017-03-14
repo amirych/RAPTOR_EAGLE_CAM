@@ -45,7 +45,7 @@ int main(int argc, char* argv[])
         }
 
         cam("EXPSTART");
-//        std::this_thread::sleep_for(std::chrono::milliseconds(6134));
+//        std::this_thread::sleep_for(std::chrono::milliseconds(9134));
 //        cam("EXPSTOP");
 
     } catch ( EagleCameraException &ex ) {
