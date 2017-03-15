@@ -69,9 +69,13 @@
 #define EAGLE_CAMERA_DEFAULT_LOG_TAB 3        // default tabulation in symbols for logging
 
 
+
 // FITS keywords name to be written
 
-#define EAGLE_CAMERA_FITS_DATE_KEYWORD_FORMAT "%Y-%m-%dT%H-%M-%S" // format for DATE and DATE-OBS FITS-keywords
+#define EAGLE_CAMERA_FITS_DATE_KEYWORD_FORMAT "%Y-%m-%dT%H:%M:%S" // format for DATE and DATE-OBS FITS-keywords
+                                                                  // Note: this format string is one for 'strftime'
+                                                                  // function, but this API add also a ten part of
+                                                                  // seconds to the final timestamp string
 
 #define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_ORIGIN "Acquisition system"
 #define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_DATEOBS "Start of the exposure in UTC"
@@ -96,6 +100,15 @@
 #define EAGLE_CAMERA_FITS_KEYWORD_NAME_READOUT_MODE "READMODE"
 #define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_READOUT_MODE "Camera readout mode"
 
+#define EAGLE_CAMERA_FITS_KEYWORD_NAME_TEC_STATE "TECSTATE"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_TEC_STATE "Thermoelectrial cooler state"
+
+#define EAGLE_CAMERA_FITS_KEYWORD_NAME_CCD_TEMP "CCDTEMP"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_CCD_TEMP "CCD chip temperature in Celsius"
+
+#define EAGLE_CAMERA_FITS_KEYWORD_NAME_PCB_TEMP "PCBTEMP"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_PCB_TEMP "PCB temperature in Celsius"
+
 #define EAGLE_CAMERA_FITS_KEYWORD_NAME_SERIAL_NUMBER "SERNUM"
 #define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_SERIAL_NUMBER "Camera serial number"
 
@@ -104,6 +117,12 @@
 
 #define EAGLE_CAMERA_FITS_KEYWORD_NAME_FPGA_VERSION  "FPGAVER"
 #define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_FPGA_VERSION  "Camera FPGA version"
+
+#define EAGLE_CAMERA_FITS_KEYWORD_NAME_BUILD_DATE  "BUILDDAT"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_BUILD_DATE  "Camera build date, DD/MM/YY"
+
+#define EAGLE_CAMERA_FITS_KEYWORD_NAME_BUILD_CODE  "BUILDCOD"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_BUILD_CODE  "Camera build code"
 
 // just forward declaration
 
@@ -120,8 +139,9 @@ public:
     typedef int64_t IntegerType;
     typedef double FloatingPointType;
 
-    EagleCamera(const char* epix_video_fmt_filename = nullptr);
-    EagleCamera(const std::string &epix_video_fmt_filename);
+    EagleCamera();
+//    EagleCamera(const char* epix_video_fmt_filename = nullptr);
+//    EagleCamera(const std::string &epix_video_fmt_filename);
 
     virtual ~EagleCamera();
 
@@ -133,11 +153,12 @@ public:
     enum EagleCameraError { Error_Uninitialized = MIN_INT_VALUE,
                             Error_NullPointer, Error_MemoryAllocation,
                             Error_InvalidUnitmap,
-                            Error_UnknowCommand, Error_UnknowFeature,
+                            Error_UnknowCommand, Error_UnknowFeature, Error_FeatureTypeMismatch,
                             Error_ReadOnlyFeature, Error_WriteOnlyFeature,
                             Error_FeatureValueIsOutOfRange, Error_InvalidFeatureValue,
                             Error_UnexpectedFPGAValue,
                             Error_AcquisitionProccessError, Error_CopyBufferTimeout,
+                            Error_FitsWritingTimeout,
                             Error_OK = 0,
                             // errors from EAGLE V 4240 Instruction Manual
                             Error_ETX_SER_TIMEOUT = 0x51, Error_ETX_CK_SUM_ERR,
@@ -466,6 +487,7 @@ protected:
 
     EagleCamera::EagleCameraError _lastCameraError;
     int _lastXCLIBError;
+
     std::atomic<bool> _acquiringFinished;
     long _acquisitionProccessPollingInterval; // in milliseconds
 
@@ -724,6 +746,7 @@ private:
 class EAGLE_CAMERA_LIBRARY_EXPORT EagleCameraException: public std::exception
 {
 public:
+    EagleCameraException(): std::exception(), _xclib_err(0), _camera_err(EagleCamera::Error_OK), _context(""){}
     EagleCameraException(const int xclib_err, const EagleCamera::EagleCameraError camera_err, const char* context);
     EagleCameraException(const int xclib_err, const EagleCamera::EagleCameraError camera_err, const std::string & context);
 
@@ -738,4 +761,100 @@ private:
     std::string _context;
 };
 
+
+
+
+
+
+
+                    /*******************************************************
+                    *                                                      *
+                    *   DEFINITIONS FOR INTEGER AND FLOATING-POINT TYPES   *
+                    *                   CAMERA FEATURES                    *
+                    *                                                      *
+                    *******************************************************/
+
+#define EAGLE_CAMERA_FEATURE_HBIN_NAME                  "HBin"
+#define EAGLE_CAMERA_FEATURE_VBIN_NAME                  "VBin"
+#define EAGLE_CAMERA_FEATURE_ROI_LEFT_NAME              "ROILeft"
+#define EAGLE_CAMERA_FEATURE_ROI_TOP_NAME               "ROITop"
+#define EAGLE_CAMERA_FEATURE_ROI_WIDTH_NAME             "ROIWidth"
+#define EAGLE_CAMERA_FEATURE_ROI_HEIGHT_NAME            "ROIHeight"
+#define EAGLE_CAMERA_FEATURE_EXPTIME_NAME               "ExposureTime"
+#define EAGLE_CAMERA_FEATURE_FRAME_RATE_NAME            "FrameRate"
+#define EAGLE_CAMERA_FEATURE_SHUTTER_OPEN_DELAY_NAME    "ShutterOpenDelay"
+#define EAGLE_CAMERA_FEATURE_SHUTTER_CLOSE_DELAY_NAME   "ShutterCloseDelay"
+#define EAGLE_CAMERA_FEATURE_TEC_SET_POINT_NAME         "TECSetPoint"
+
+#define EAGLE_CAMERA_FEATURE_CCD_TEMP_NAME   "CCDTemperature"
+#define EAGLE_CAMERA_FEATURE_PCB_TEMP_NAME   "PCBTemperature"
+
+#define EAGLE_CAMERA_FEATURE_ADC_CALIB0_NAME   "ADC_CALIB_0"
+#define EAGLE_CAMERA_FEATURE_ADC_CALIB1_NAME   "ADC_CALIB_1"
+#define EAGLE_CAMERA_FEATURE_DAC_CALIB0_NAME   "DAC_CALIB_0"
+#define EAGLE_CAMERA_FEATURE_DAC_CALIB1_NAME   "DAC_CALIB_1"
+
+#define EAGLE_CAMERA_FEATURE_SERIAL_NUMBER_NAME   "SerialNumber"
+#define EAGLE_CAMERA_FEATURE_BUILD_DATE_NAME      "BuildDate"
+#define EAGLE_CAMERA_FEATURE_BUILD_CODE_NAME      "BuildCode"
+#define EAGLE_CAMERA_FEATURE_FPGA_VERSION_NAME    "FPGAVersion"
+#define EAGLE_CAMERA_FEATURE_MICRO_VERSION_NAME   "MicroVersion"
+
+#define EAGLE_CAMERA_FEATURE_FRAME_COUNTS_NAME        "FrameCount"
+#define EAGLE_CAMERA_FEATURE_FITS_FILENAME_NAME       "FitsFilename"
+#define EAGLE_CAMERA_FEATURE_FITS_HDR_FILENAME_NAME   "FitsHdrFilename"
+
+
+
+            /***************************************************
+            *                                                  *
+            *   DEFINITIONS FOR STRING-TYPE CAMERA FEATURES    *
+            *                                                  *
+            ***************************************************/
+
+
+    /*    "ShutterState"     */
+
+#define EAGLE_CAMERA_FEATURE_SHUTTER_STATE_NAME   "ShutterState"
+#define EAGLE_CAMERA_FEATURE_SHUTTER_STATE_CLOSED "CLOSED"  // permanently closed
+#define EAGLE_CAMERA_FEATURE_SHUTTER_STATE_OPEN   "OPEN"    // permanently open
+#define EAGLE_CAMERA_FEATURE_SHUTTER_STATE_EXP    "EXP"     // open during exposure, closed otherwise
+
+
+    /*     "TECState"     */
+
+#define EAGLE_CAMERA_FEATURE_TEC_STATE_NAME "TECState"
+#define EAGLE_CAMERA_FEATURE_TEC_STATE_ON   "ON"     // thermoelectrical cooler is on
+#define EAGLE_CAMERA_FEATURE_TEC_STATE_OFF  "OFF"    // thermoelectrical cooler is off
+
+
+    /*     "PreAmpGain"     */
+
+#define EAGLE_CAMERA_FEATURE_PREAMP_GAIN_NAME  "PreAmpGain"
+#define EAGLE_CAMERA_FEATURE_PREAMP_GAIN_HIGH  "HIGH"
+#define EAGLE_CAMERA_FEATURE_PREAMP_GAIN_LOW   "LOW"
+
+
+    /*     "ReadoutRate"     */
+
+#define EAGLE_CAMERA_FEATURE_READOUT_RATE_NAME "ReadoutRate"
+#define EAGLE_CAMERA_FEATURE_READOUT_RATE_FAST "FAST"
+#define EAGLE_CAMERA_FEATURE_READOUT_RATE_SLOW "SLOW"
+
+
+    /*     "ReadoutMode"     */
+
+#define EAGLE_CAMERA_FEATURE_READOUT_MODE_NAME    "ReadoutMode"
+#define EAGLE_CAMERA_FEATURE_READOUT_MODE_NORMAL  "NORMAL"
+#define EAGLE_CAMERA_FEATURE_READOUT_MODE_TEST    "TEST"
+
+
+    /*     "FitsDataFormat"     */
+
+#define EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_NAME   "FitsDataFormat"
+#define EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_EXTEN  "EXTEN"  // write frames into separate IMAGE-extensions
+#define EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_CUBE   "CUBE"   // write frames into primary array as a 3D cube
+
+
 #endif // EAGLE_CAMERA_H
+

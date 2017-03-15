@@ -2,6 +2,14 @@
 #define EAGLE_CAMERA_INIT_DEFS_H
 
 
+
+                /*******************************************************
+                *                                                      *
+                *   DEFINITIONS FOR INTEGER AND FLOATING-POINT TYPES   *
+                *                   CAMERA FEATURES                    *
+                *                                                      *
+                *******************************************************/
+
 #define EAGLE_CAMERA_FEATURE_HBIN_NAME                  "HBin"
 #define EAGLE_CAMERA_FEATURE_VBIN_NAME                  "VBin"
 #define EAGLE_CAMERA_FEATURE_ROI_LEFT_NAME              "ROILeft"

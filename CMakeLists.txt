@@ -47,6 +47,12 @@ target_link_libraries(${EAGLE_CAMERA_LIB} ${CFITSIO_LIBRARIES})
 target_compile_definitions(${EAGLE_CAMERA_LIB} PRIVATE EAGLE_CAMERA_LIBRARY=1)
 
 
+# commandline client
+set(EAGLE_CAMERA_CMD eaglecam_cmd)
+add_executable(${EAGLE_CAMERA_CMD} eaglecam_cmd.cpp)
+target_link_libraries(${TEST_PROG} ${EAGLE_CAMERA_LIB})
+
+
 # temporary test suite
 set(TEST_PROG test_prog)
 add_executable(${TEST_PROG} test_prog.cpp)

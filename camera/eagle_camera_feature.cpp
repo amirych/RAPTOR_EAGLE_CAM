@@ -164,11 +164,11 @@ EagleCamera_StringFeature::EagleCamera_StringFeature(EagleCamera::CameraFeatureP
     EagleCamera_StringFeature()
 {
     if ( !feature._camera ) { // strange, but should be handled
-        throw EagleCameraException(0,EagleCamera::Error_NullPointer,"Pointer to camera object is null!");
+        throw EagleCameraException(0,EagleCamera::Error_NullPointer,"Pointer to camera object is null");
     }
 
     if ( !feature._camera->currentCameraFeature ) {
-        throw EagleCameraException(0,EagleCamera::Error_NullPointer,"Pointer to camera feature object is null!");
+        throw EagleCameraException(0,EagleCamera::Error_NullPointer,"Pointer to camera feature object is null");
     }
 
     if ( feature._camera->currentCameraFeature->access() == EagleCamera::WriteOnly ) {
@@ -179,6 +179,12 @@ EagleCamera_StringFeature::EagleCamera_StringFeature(EagleCamera::CameraFeatureP
 
     EagleCamera::CameraFeature<std::string> *f = static_cast<EagleCamera::CameraFeature<std::string> *>
                                                              (feature._camera->currentCameraFeature);
+
+    if ( f->type() != EagleCamera::StringType ) {
+        throw EagleCameraException(0,EagleCamera::Error_FeatureTypeMismatch,
+                                   "Try to get string value of non-string type feature")    ;
+    }
+
 
     _name = f->name();
     _value = f->get();

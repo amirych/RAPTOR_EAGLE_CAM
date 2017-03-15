@@ -7,7 +7,8 @@ using namespace std;
 int main(int argc, char* argv[])
 {
     try {
-        EagleCamera cam("/home/timur/raptor_eagle-v.fmt");
+//        EagleCamera cam("/home/timur/raptor_eagle-v.fmt");
+        EagleCamera cam;
         if ( argc > 1 ) {
             int fl = atoi(argv[1]);
             if ( fl == 0 ) {
@@ -45,11 +46,12 @@ int main(int argc, char* argv[])
         }
 
         cam("EXPSTART");
-//        std::this_thread::sleep_for(std::chrono::milliseconds(9134));
-//        cam("EXPSTOP");
+        std::this_thread::sleep_for(std::chrono::milliseconds(9134));
+        cam("EXPSTOP");
 
     } catch ( EagleCameraException &ex ) {
-        cout << "ERROR: " << ex.what() << "\n";
+        cout << "ERROR: " << ex.what() << "  [" << ex.XCLIB_Error() << ", " <<
+             ex.Camera_Error() << "]\n";
     }
 
     return 0;

@@ -1,5 +1,4 @@
 #include <eagle_camera.h>
-#include <eagle_camera_init_defs.h>
 
 #include <cmath>
 
