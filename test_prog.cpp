@@ -39,6 +39,8 @@ int main(int argc, char* argv[])
 
         cam["ShutterState"] = "EXP";
 
+//        cam["HBin"] = 2;
+
         if ( argc > 3 ) {
             cam["FitsDataFormat"] = "CUBE";
         } else {
@@ -46,8 +48,8 @@ int main(int argc, char* argv[])
         }
 
         cam("EXPSTART");
-        std::this_thread::sleep_for(std::chrono::milliseconds(9134));
-        cam("EXPSTOP");
+//        std::this_thread::sleep_for(std::chrono::milliseconds(9134));
+//        cam("EXPSTOP");
 
     } catch ( EagleCameraException &ex ) {
         cout << "ERROR: " << ex.what() << "  [" << ex.XCLIB_Error() << ", " <<

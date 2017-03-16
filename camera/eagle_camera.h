@@ -45,6 +45,7 @@
 #include <mutex>
 #include <fitsio.h>
 
+#include <iostream>
 
 
                     /*********************************************
@@ -67,6 +68,12 @@
 #define EAGLE_CAMERA_DEFAULT_ACQUISITION_POLL_INTERVAL 100 // default interval in milliseconds for polling of acquisition
                                                            // proccess
 #define EAGLE_CAMERA_DEFAULT_LOG_TAB 3        // default tabulation in symbols for logging
+
+#define EAGLE_CAMERA_DEFAULT_TEMP_VALUE_DIGITS 2 // default number of digits after floating point
+                                                 // for temperature values saved in FITS file
+
+#define EAGLE_CAMERA_DEFAULT_EXPTIME_VALUE_DIGITS 2 // default number of digits after floating point
+                                                    // for exposure time values saved in FITS file
 
 
 
@@ -139,9 +146,9 @@ public:
     typedef int64_t IntegerType;
     typedef double FloatingPointType;
 
-    EagleCamera();
-//    EagleCamera(const char* epix_video_fmt_filename = nullptr);
-//    EagleCamera(const std::string &epix_video_fmt_filename);
+//    EagleCamera();
+    EagleCamera(const char* epix_video_fmt_filename = nullptr);
+    EagleCamera(const std::string &epix_video_fmt_filename);
 
     virtual ~EagleCamera();
 
@@ -257,6 +264,7 @@ protected:
 
         void set_range(const std::vector<T> &r) {
             _range = r;
+//            std::cout << "NAME = " << _name << "        SET RANGE: [" << _range[0] << ", " << _range[1] << "]\n";
         }
 
     private:
@@ -283,6 +291,12 @@ protected:
 
             if ( !_camera->currentCameraFeature ) {
                 throw EagleCameraException(0,EagleCamera::Error_NullPointer,"Pointer to camera feature object is null!");
+            }
+
+            if ( _camera->currentCameraFeature->type() == EagleCamera::StringType ) {
+                std::string log_str = "Feature type mismatch: ('" +
+                        _camera->currentCameraFeature->name() + "' has string type)";
+                throw EagleCameraException(0,EagleCamera::Error_FeatureTypeMismatch,log_str);
             }
 
             if ( _camera->currentCameraFeature->access() == EagleCamera::WriteOnly ) {
@@ -351,6 +365,11 @@ protected:
                     }
                     f->set(val);
                     break;
+                }
+                case EagleCamera::StringType: {
+                        std::string log_str = "Feature type mismatch: ('" +
+                                _camera->currentCameraFeature->name() + "' has string type)";
+                        throw EagleCameraException(0,EagleCamera::Error_FeatureTypeMismatch,log_str);
                 }
             }
             return *this;
@@ -472,10 +491,14 @@ protected:
 
     long _imageXDim;
     long _imageYDim;
+    long _imageStartX;
+    long _imageStartY;
     double _expTime;
     std::chrono::system_clock::time_point _startExpTimepoint;
     std::chrono::system_clock::time_point _stopExpTimepoint;
     std::vector<std::string> _startExpTimestamp;
+    std::vector<double> _ccdTemp;
+    std::vector<double> _pcbTemp;
     std::vector<std::unique_ptr<ushort[]>> _imageBuffer; // image buffers addresses
     size_t _currentBufferLength;
 
@@ -704,7 +727,7 @@ protected:
     EagleCamera::IntegerType fpga40BitsToCounts(const byte_vector_t &vals);
     byte_vector_t countsToFPGA40Bits(const EagleCamera::IntegerType counts);
 
-    EagleCamera::IntegerType fpga16BitsToInteger(const byte_vector_t &vals);
+    EagleCamera::IntegerType fpga12BitsToInteger(const byte_vector_t &vals);
     byte_vector_t integerToFPGA12Bits(const EagleCamera::IntegerType val);
 
 

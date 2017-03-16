@@ -92,6 +92,12 @@ EagleCamera::CameraFeatureProxy & EagleCamera::CameraFeatureProxy::operator = (c
         throw EagleCameraException(0,EagleCamera::Error_NullPointer,"Pointer to camera feature object is null!");
     }
 
+    if ( _camera->currentCameraFeature->type() != EagleCamera::StringType ) {
+        std::string log_str = "Feature type mismatch: ('" +
+                _camera->currentCameraFeature->name() + "' is not of string type)";
+        throw EagleCameraException(0,EagleCamera::Error_FeatureTypeMismatch,log_str);
+    }
+
     if ( _camera->currentCameraFeature->access() == EagleCamera::ReadOnly ) {
         std::string log_str = "Try to set value to read-only feature '" +
                 _camera->currentCameraFeature->name() + "'!";

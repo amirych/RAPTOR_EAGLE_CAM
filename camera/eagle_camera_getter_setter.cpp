@@ -1,6 +1,7 @@
 #include <eagle_camera.h>
 
 #include <cmath>
+#include <iostream>
 
                      /*******************************************
                      *                                          *
@@ -60,6 +61,7 @@ void EagleCamera::setGeometryValue(const EagleCamera::GeometryValueName name, co
         case EagleCamera::GV_ROIHEIGHT:
             addr = {0xB8, 0xB9};
             value = integerToFPGA12Bits(val);
+            std::cout << "SET HEIGHT: " << val << "[" << (uint)value[0] << ", " << (uint)value[1] << "]\n";
             break;
         default:
             break;
@@ -108,7 +110,7 @@ EagleCamera::IntegerType EagleCamera::getGeometryValue(const EagleCamera::Geomet
     if ( name == EagleCamera::GV_XBIN ) return value[0];
     if ( name == EagleCamera::GV_YBIN ) return value[0];
 
-    return fpga16BitsToInteger(value);
+    return fpga12BitsToInteger(value);
 }
 
 
@@ -144,6 +146,7 @@ void EagleCamera::setYBIN(const EagleCamera::IntegerType val)
 
     IntegerType max_h = static_cast<IntegerType>(ceil(1.0*(_ccdDimension[1] - startY)/val));
 
+//    std::cout << "SET YBIN: startY = " << startY << ", height = " << height << ", max_h = " << max_h << "\n";
     if ( max_h < height ) setGeometryValue(EagleCamera::GV_ROIHEIGHT,max_h);
 }
 
@@ -160,11 +163,12 @@ void EagleCamera::setROILeft(const EagleCamera::IntegerType val)
 
     // check and adjust ROI width
 
-    IntegerType binX =  getGeometryValue(EagleCamera::GV_XBIN);
+    IntegerType binX =  getGeometryValue(EagleCamera::GV_XBIN) + 1;
     IntegerType width =  getGeometryValue(EagleCamera::GV_ROIWIDTH);
 
-    IntegerType max_w = static_cast<IntegerType>(ceil(1.0*(_ccdDimension[0] - val)/binX));
+    IntegerType max_w = static_cast<IntegerType>(ceil(1.0*(_ccdDimension[0] - val + 1)/binX));
 
+    std::cout << "setROILeft:  binX = " << binX << ", width = " << width << ", max_w = " << max_w << "\n";
     if ( max_w < width ) setGeometryValue(EagleCamera::GV_ROIWIDTH,max_w);
 }
 
@@ -181,12 +185,18 @@ void EagleCamera::setROITop(const EagleCamera::IntegerType val)
 
     // check and adjust ROI height
 
-    IntegerType binY =  getGeometryValue(EagleCamera::GV_YBIN);
+    IntegerType binY =  getGeometryValue(EagleCamera::GV_YBIN) + 1;
     IntegerType height =  getGeometryValue(EagleCamera::GV_ROIHEIGHT);
 
-    IntegerType max_h = static_cast<IntegerType>(ceil(1.0*(_ccdDimension[1] - val)/binY));
+    IntegerType max_h = static_cast<IntegerType>(ceil(1.0*(_ccdDimension[1] - val + 1)/binY));
+
+    std::cout << "setROITop:  binY = " << binY << ", height = " << height << ", max_h = " << max_h << "\n";
 
     if ( max_h < height ) setGeometryValue(EagleCamera::GV_ROIHEIGHT,max_h);
+
+    std::cout << "setROITop: height = " << getGeometryValue(GV_ROIHEIGHT) << "\n";
+
+    std::cout << "setROITop: END\n";
 }
 
 
@@ -370,7 +380,7 @@ double EagleCamera::getTEC_SetPoint()
 //    uint16_t counts = (value[0] & 0x0F) << 8;
 //    counts += value[1];
 
-    IntegerType counts = fpga16BitsToInteger(value);
+    IntegerType counts = fpga12BitsToInteger(value);
 
     return static_cast<double>(ADC_LinearCoeffs[0] + ADC_LinearCoeffs[1]*counts);
 }
@@ -388,7 +398,7 @@ double EagleCamera::getPCBTemp()
 
 //    uint16_t counts = ((value[0] & 0x0F) << 8) + value[1];
 
-    IntegerType counts = fpga16BitsToInteger(value);
+    IntegerType counts = fpga12BitsToInteger(value);
 
     return counts/16.0;
 }
@@ -406,7 +416,7 @@ double EagleCamera::getCCDTemp()
 
 //    uint16_t counts = ( value[0] << 8) + value[1];
 
-    IntegerType counts = fpga16BitsToInteger(value);
+    IntegerType counts = fpga12BitsToInteger(value);
 
     double val = ADC_LinearCoeffs[1]*static_cast<double>(counts);
 

@@ -10,7 +10,7 @@
                         *                                        *
                         *****************************************/
 
-
+extern std::string trim_spaces(const std::string& s, const std::string& whitespace = " \t");
 
 void EagleCamera::InitCameraFeatures()
 {
@@ -261,7 +261,7 @@ void EagleCamera::InitCameraFeatures()
             new EagleCamera::CameraFeature<std::string>( EAGLE_CAMERA_FEATURE_FITS_FILENAME_NAME,
                     EagleCamera::ReadWrite, {},
                     [this]() {return _fitsFilename;},
-                    [this](const std::string fn){_fitsFilename = fn;}
+                    [this](const std::string fn){_fitsFilename = trim_spaces(fn);}
                ));
 
 
@@ -269,7 +269,7 @@ void EagleCamera::InitCameraFeatures()
             new EagleCamera::CameraFeature<std::string>( EAGLE_CAMERA_FEATURE_FITS_HDR_FILENAME_NAME,
                     EagleCamera::ReadWrite, {},
                     [this]() {return _fitsHdrFilename;},
-                    [this](const std::string fhn){_fitsHdrFilename = fhn;}
+                    [this](const std::string fhn){_fitsHdrFilename = trim_spaces(fhn);}
                ));
 
 
@@ -277,7 +277,7 @@ void EagleCamera::InitCameraFeatures()
             new EagleCamera::CameraFeature<std::string>( EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_NAME,
                     EagleCamera::ReadWrite, {EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_EXTEN, EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_CUBE},
                     [this]() {return _fitsDataFormat;},
-                    [this](const std::string ff){_fitsDataFormat = ff;}
+                    [this](const std::string ff){_fitsDataFormat = trim_spaces(ff);}
                ));
 
 
