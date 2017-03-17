@@ -28,7 +28,8 @@ int main(int argc, char* argv[])
     double val;
 
     try {
-        EagleCamera cam("/home/timur/f.fmt");
+//        EagleCamera cam("/home/timur/f.fmt");
+        EagleCamera cam;
         cam.setLogLevel(EagleCamera::LOG_LEVEL_ERROR);
         cam.initCamera(1, &std::cout);
 

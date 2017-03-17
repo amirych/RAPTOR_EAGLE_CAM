@@ -90,10 +90,10 @@
 
 
 #define EAGLE_CAMERA_FITS_KEYWORD_NAME_STARTX "CRVAL1"
-#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_STARTX "Start pixel along X-axis in CCD pixels"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_STARTX "Start coordinate along X-axis in CCD pixels"
 
 #define EAGLE_CAMERA_FITS_KEYWORD_NAME_STARTY "CRVAL2"
-#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_STARTY "Start pixel along Y-axis in CCD pixels"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_STARTY "Start coordinate along Y-axis in CCD pixels"
 
 #define EAGLE_CAMERA_FITS_KEYWORD_NAME_EXPTIME "EXPTIME"
 #define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_EXPTIME "Integration time in seconds"
@@ -489,6 +489,7 @@ protected:
     IntegerType _frameCounts; // number of frames per acquisition proccess
     IntegerType _currentBuffer;
 
+    IntegerType _frameBufferLines;
     long _imageXDim;
     long _imageYDim;
     long _imageStartX;
