@@ -64,6 +64,8 @@
                                                        // the final timeout is one for capturing proccess
                                                        // (see doSnap XCLIB function)
 
+#define EAGLE_CAMERA_DEFAULT_NUMBER_OF_BUFFERS 3 // default number of buffers used for FITS file saving
+
 #define EAGLE_CAMERA_DEFAULT_BUFFER_TIMEOUT 10  // default timeout in seconds for captured image buffer copying proccess
 #define EAGLE_CAMERA_DEFAULT_ACQUISITION_POLL_INTERVAL 100 // default interval in milliseconds for polling of acquisition
                                                            // proccess
@@ -100,6 +102,9 @@
 
 #define EAGLE_CAMERA_FITS_KEYWORD_NAME_BINNING "BINNING"
 #define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_BINNING "Binning mode (XBINxYBIN)"
+
+#define EAGLE_CAMERA_FITS_KEYWORD_NAME_SHUTTER_STATE "SHUTTER"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_SHUTTER_STATE "Shutter state"
 
 #define EAGLE_CAMERA_FITS_KEYWORD_NAME_READOUT_RATE "READRATE"
 #define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_READOUT_RATE "Camera readout rate"
@@ -160,8 +165,9 @@ public:
     enum EagleCameraError { Error_Uninitialized = MIN_INT_VALUE,
                             Error_NullPointer, Error_MemoryAllocation,
                             Error_InvalidUnitmap,
-                            Error_UnknowCommand, Error_UnknowFeature, Error_FeatureTypeMismatch,
-                            Error_ReadOnlyFeature, Error_WriteOnlyFeature,
+                            Error_UnknowCommand, Error_UnknowFeature,
+                            Error_FeatureGetterIsNull, Error_FeatureSetterIsNull,
+                            Error_FeatureTypeMismatch, Error_ReadOnlyFeature, Error_WriteOnlyFeature,
                             Error_FeatureValueIsOutOfRange, Error_InvalidFeatureValue,
                             Error_UnexpectedFPGAValue,
                             Error_AcquisitionProccessError, Error_CopyBufferTimeout,
@@ -252,10 +258,12 @@ protected:
 
         T get() {
             if ( _getter ) return _getter();
+            throw EagleCameraException(0,EagleCamera::Error_FeatureGetterIsNull,"Feature getter function pointer is null");
         }
 
         void set(const T val) {
             if ( _setter ) _setter(val);
+            throw EagleCameraException(0,EagleCamera::Error_FeatureSetterIsNull,"Feature setter function pointer is null");
         }
 
         std::vector<T> range() const {
@@ -494,6 +502,7 @@ protected:
     long _imageYDim;
     long _imageStartX;
     long _imageStartY;
+    long _imagePixelsNumber;
     double _expTime;
     std::chrono::system_clock::time_point _startExpTimepoint;
     std::chrono::system_clock::time_point _stopExpTimepoint;
