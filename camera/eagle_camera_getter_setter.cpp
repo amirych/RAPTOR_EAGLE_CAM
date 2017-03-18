@@ -41,7 +41,7 @@ void EagleCamera::setGeometryValue(const EagleCamera::GeometryValueName name, co
         case EagleCamera::GV_XBIN:
             addr = {0xA1};
             value = {v};
-            std::cout << "SET XBIN: v = " << (int)v << "\n";
+//            std::cout << "SET XBIN: v = " << (int)v << "\n";
             break;
         case EagleCamera::GV_YBIN:
             addr = {0xA2};
@@ -291,10 +291,10 @@ void EagleCamera::setShutterState(const std::string val)
 
 std::string EagleCamera::getShutterState()
 {
-    byte_vector_t val(1);
+    byte_vector_t val;
     std::string value;
 
-    readRegisters({0xA5},val);
+    val = readRegisters({0xA5});
 
     switch (val[0]) {
         case 0x0:
@@ -345,9 +345,9 @@ void EagleCamera::setShutterCloseDelay(const double val)
 
 double EagleCamera::getShutterCloseDelay()
 {
-    byte_vector_t val(1);
+    byte_vector_t val;
 
-    readRegisters({0xA7},val);
+    val = readRegisters({0xA7});
 
     return SHUTTER_DELAY_PERIOD*val[0];
 }

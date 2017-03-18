@@ -5,6 +5,7 @@
 #include<map>
 #include <exception>
 #include <cstring>
+#include <csignal>
 
 std::map<std::string, std::string> cmd_map =
 {
@@ -23,13 +24,25 @@ std::map<std::string, std::string> cmd_map =
     {"-ff",EAGLE_CAMERA_FEATURE_FITS_FILENAME_NAME}
 };
 
+
+static EagleCamera *camera_ptr;
+
+void signal_hndl(int signal)
+{
+    (*camera_ptr)("EXPSTOP");
+}
+
+
 int main(int argc, char* argv[])
 {
     double val;
 
+    std::signal(SIGINT, signal_hndl);
+
     try {
 //        EagleCamera cam("/home/timur/f.fmt");
         EagleCamera cam;
+        camera_ptr = &cam;
         cam.setLogLevel(EagleCamera::LOG_LEVEL_ERROR);
         cam.initCamera(1, &std::cout);
 

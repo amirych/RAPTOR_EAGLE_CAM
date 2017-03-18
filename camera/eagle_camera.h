@@ -64,7 +64,7 @@
                                                        // the final timeout is one for capturing proccess
                                                        // (see doSnap XCLIB function)
 
-#define EAGLE_CAMERA_DEFAULT_NUMBER_OF_BUFFERS 3 // default number of buffers used for FITS file saving
+#define EAGLE_CAMERA_DEFAULT_NUMBER_OF_BUFFERS 10 // default number of buffers used for FITS file saving
 
 #define EAGLE_CAMERA_DEFAULT_BUFFER_TIMEOUT 10  // default timeout in seconds for captured image buffer copying proccess
 #define EAGLE_CAMERA_DEFAULT_ACQUISITION_POLL_INTERVAL 100 // default interval in milliseconds for polling of acquisition
@@ -102,6 +102,12 @@
 
 #define EAGLE_CAMERA_FITS_KEYWORD_NAME_BINNING "BINNING"
 #define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_BINNING "Binning mode (XBINxYBIN)"
+
+#define EAGLE_CAMERA_FITS_KEYWORD_NAME_XBIN "XBIN"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_XBIN "Binning mode along X-axis"
+
+#define EAGLE_CAMERA_FITS_KEYWORD_NAME_YBIN "YBIN"
+#define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_YBIN "Binning mode along Y-axis"
 
 #define EAGLE_CAMERA_FITS_KEYWORD_NAME_SHUTTER_STATE "SHUTTER"
 #define EAGLE_CAMERA_FITS_KEYWORD_COMMENT_SHUTTER_STATE "Shutter state"
@@ -263,7 +269,9 @@ protected:
 
         void set(const T val) {
             if ( _setter ) _setter(val);
-            throw EagleCameraException(0,EagleCamera::Error_FeatureSetterIsNull,"Feature setter function pointer is null");
+            else {
+                throw EagleCameraException(0,EagleCamera::Error_FeatureSetterIsNull,"Feature setter function pointer is null");
+            }
         }
 
         std::vector<T> range() const {
@@ -528,7 +536,7 @@ protected:
 
     long _capturingTimeoutGap;
 
-    std::vector<std::future<int>> _copyFramebuffersFuture;
+//    std::vector<std::future<int>> _copyFramebuffersFuture;
     std::atomic<bool> _stopCapturing;
 
 

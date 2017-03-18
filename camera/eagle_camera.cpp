@@ -134,7 +134,7 @@ EagleCamera::EagleCamera(const char *epix_video_fmt_filename):
     _capturingTimeoutGap(EAGLE_CAMERA_DEFAULT_CAPTURING_TIMEOUT_GAP),
     _acquisitionProccessThreadFuture(),
 
-    _copyFramebuffersFuture(),
+//    _copyFramebuffersFuture(),
     _acquisitionProccessPollingInterval(EAGLE_CAMERA_DEFAULT_ACQUISITION_POLL_INTERVAL),
     _stopCapturing(true), _acquiringFinished(true),
     _lastCameraError(EagleCamera::Error_OK), _lastXCLIBError(0),
@@ -298,16 +298,19 @@ void EagleCamera::initCamera(const int unitmap, std::ostream *log_file)
 //        XCLIB_API_CALL( cc = pxd_imageCdim(), log_str );
 
         log_str = "pxd_imageZdim()";
-        XCLIB_API_CALL( _frameBuffersNumber = pxd_imageZdim(), log_str);
+//        XCLIB_API_CALL( _frameBuffersNumber = pxd_imageZdim(), log_str);
+        int Nbuff;
+        XCLIB_API_CALL( Nbuff = pxd_imageZdim(), log_str);
 
         _imageBuffer.resize(_frameBuffersNumber);
-        _copyFramebuffersFuture.resize(_frameBuffersNumber);
+//        _copyFramebuffersFuture.resize(_frameBuffersNumber);
 //        _currentBufferLength = _ccdDimension[0]*_ccdDimension[1];
 
         logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "CCD dimensions: [" +
                   std::to_string(_ccdDimension[0]) + ", " + std::to_string(_ccdDimension[1]) + "] pixels", ntab);
         logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "CCD bits per pixel: " + std::to_string(_bitsPerPixel), ntab);
-        logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "Number of frame buffers: " + std::to_string(_frameBuffersNumber), ntab);
+        logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "Number of frame buffers: " + std::to_string(Nbuff), ntab);
+//        logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "Number of frame buffers: " + std::to_string(_frameBuffersNumber), ntab);
 
         logToFile(EagleCamera::LOG_IDENT_CAMERA_INFO, "Set initial camera configuration ...", 1);
 
@@ -425,8 +428,6 @@ void EagleCamera::startAcquisition()
     std::cout << "ROI TOP-LEFT COORDINATES: [" << _imageStartX << ", " << _imageStartY << "]\n";
     std::cout << "NUMBER OF PIXELS IN THE IMAGE: " << _imagePixelsNumber << "\n";
     std::cout << "NUMBER OF FRAMEBUFFER LINES: " << _frameBufferLines << "\n";
-//    std::cout << "NELEMS = " << _imagePixelsNumber << " ( WxH = " << _imageXDim << "x" << _imageYDim << ")\n";
-//    std::cout << "STARTX = " << _imageStartX << ", STARTY = " << _imageStartY << "\n";
 #endif
 
     size_t Nbuffs;
@@ -442,11 +443,6 @@ void EagleCamera::startAcquisition()
         throw EagleCameraException(0, EagleCamera::Error_MemoryAllocation, "Cannot allocate memory for image buffer");
     }
 
-
-//    std::vector<std::future<void>> copy_buffer(Nbuffs);
-
-
-//    acquisitionIsAboutToStart();
 
     _acquiringFinished = false;
     _startExpTimestamp.resize(_frameCounts);
@@ -551,7 +547,7 @@ void EagleCamera::startAcquisition()
                     std::cout << "(stop before capturing) i_frame = " << i_frame << "\n";
                     std::chrono::duration<double> fp_s = _stopExpTimepoint-_startExpTimepoint;
                     stopFrameExpTime = fp_s.count();
-                    break;
+                    break; // break cycle
                 }
 
                 if ( (i_frame - i_frameSaving) < _imageBuffer.size() ) { // read buffer should not overrun save buffer
@@ -586,24 +582,25 @@ void EagleCamera::startAcquisition()
 
                 } else --i_frame;
 
-                // check for exposure abort signal
-                if ( _stopCapturing ) { // recompute exposure duration
-                    std::cout << "(stop after capturing) i_frame = " << i_frame << "\n";
-                    std::chrono::duration<double> fp_s = _stopExpTimepoint-_startExpTimepoint;
-                    stopFrameExpTime = fp_s.count();
-                    break;
-                }
-
                 // save images to FITS file asynchronously
 
                 if ( run_saving.valid() ) { // is saving thread still working?
-                    auto wstatus = run_saving.wait_for(std::chrono::milliseconds(10000));
+//                    auto wstatus = run_saving.wait_for(std::chrono::milliseconds(10000));
 
+//                    if ( wstatus != std::future_status::ready ) { // something wrong!
+//                        throw EagleCameraException(0,EagleCamera::Error_FitsWritingTimeout,
+//                                                   "A timeout occured while writing FITS image");
+//                    }
+
+                    auto wstatus = run_saving.wait_for(std::chrono::milliseconds(100));
+
+                    if ( wstatus == std::future_status::timeout ) continue; // capture next image
                     if ( wstatus != std::future_status::ready ) { // something wrong!
                         throw EagleCameraException(0,EagleCamera::Error_FitsWritingTimeout,
                                                    "A timeout occured while writing FITS image");
                     }
 
+                    // here wstatus == std::future_status::ready
                     run_saving.get();
 
                     ++lastSavingBuffer; // ready to save next image
@@ -616,6 +613,8 @@ void EagleCamera::startAcquisition()
                 run_saving = std::async(std::launch::async,
                                         &EagleCamera::saveToFitsFile, this, i_frameSaving,
                                         lastSavingBuffer, _expTime, exten_format);
+
+//                if ( _stopCapturing ) break; // break cycle
             }
 
             if ( run_capture.valid() ) {
@@ -636,7 +635,6 @@ void EagleCamera::startAcquisition()
                          "             i_frame = " << i_frame <<
                          ", i_frameSaving = " << i_frameSaving << "\n";
 
-
             if ( i_frameSaving < i_frame ) { // save remainder of buffers list
                 if ( _currentBuffer > lastSavingBuffer ) {
                     for ( IntegerType i = lastSavingBuffer; i < _currentBuffer; ++i ) {
@@ -652,13 +650,33 @@ void EagleCamera::startAcquisition()
                 }
             }
 
-            if ( _stopCapturing ) { // re-write exposure duration keyword for the last image
-                if ( exten_format ) {
+            if ( _stopCapturing && (stopFrameExpTime < _expTime)) { // re-write exposure duration keyword for the last image
+                                                                    // if (stopFrameExpTime > _expTime) then
+                                                                    // exposure was not active when it was stopped!
+                if ( exten_format || i_frame == 1 ) {
                     formatFitsLogMessage("fits_update_key", TDOUBLE, EAGLE_CAMERA_FITS_KEYWORD_NAME_EXPTIME,
                                          _expTime, EAGLE_CAMERA_FITS_KEYWORD_COMMENT_EXPTIME, (void*)&status);
                     CFITSIO_API_CALL( fits_update_key(_fitsFilePtr, TDOUBLE, EAGLE_CAMERA_FITS_KEYWORD_NAME_EXPTIME,
                                                       (void*)&stopFrameExpTime, EAGLE_CAMERA_FITS_KEYWORD_COMMENT_EXPTIME,
                                                       &status),
+                                      logMessageStream.str());
+                }
+            }
+
+            if ( !exten_format && _stopCapturing ) { // re-write NAXIS3 value for "CUBE" data format
+                long val;
+                if ( i_frame > 1 ) { // just re-write
+                    val = i_frame ;
+                    formatFitsLogMessage("fits_update_key", TLONG ,"NAXIS3", val,NULL,(void*)&status);
+                    CFITSIO_API_CALL( fits_update_key(_fitsFilePtr, TLONG ,"NAXIS3", &val, NULL, &status),
+                                      logMessageStream.str() );
+                } else { // delete keyword because of it is now just 2-dim image, and update "NAXIS" keyword
+                    val = 2;
+                    formatFitsLogMessage("fits_update_key", TLONG ,"NAXIS", val,NULL,(void*)&status);
+                    CFITSIO_API_CALL( fits_update_key(_fitsFilePtr, TLONG ,"NAXIS", &val, NULL, &status),
+                                      logMessageStream.str() );
+                    formatFitsLogMessage("fits_delete_key","NAXIS3",(void*)&status);
+                    CFITSIO_API_CALL( fits_delete_key(_fitsFilePtr,"NAXIS3",&status),
                                       logMessageStream.str());
                 }
             }
@@ -718,7 +736,7 @@ void EagleCamera::startAcquisition()
                                       logMessageStream.str());
                 }
 
-                if ( _stopCapturing ) { // re-write value of EXPTIME if user abort exposure
+                if ( _stopCapturing  && (stopFrameExpTime < _expTime)) { // re-write value of EXPTIME if user abort exposure
                     formatFitsLogMessage("fits_write_col",TDOUBLE,2,i_frame,1,1,stopFrameExpTime,(void*)&status);
                     CFITSIO_API_CALL( fits_write_col(_fitsFilePtr,TDOUBLE,2,i_frame,1,1,&stopFrameExpTime,&status),
                                       logMessageStream.str());
@@ -734,7 +752,7 @@ void EagleCamera::startAcquisition()
             // write camera info FITS keywords
             EagleCamera_StringFeature str_f;
             std::string str_val;
-            IntegerType int_val;
+            int int_val;
             double float_val;
             long long_val;
 
@@ -762,8 +780,21 @@ void EagleCamera::startAcquisition()
 
             // binning
             int_val = (*this)[EAGLE_CAMERA_FEATURE_HBIN_NAME];
+            formatFitsLogMessage("fits_update_key", TINT, EAGLE_CAMERA_FITS_KEYWORD_NAME_XBIN, int_val,
+                                 EAGLE_CAMERA_FITS_KEYWORD_COMMENT_XBIN, &status);
+            CFITSIO_API_CALL( fits_update_key(_fitsFilePtr, TINT, EAGLE_CAMERA_FITS_KEYWORD_NAME_XBIN,
+                                              &int_val, EAGLE_CAMERA_FITS_KEYWORD_COMMENT_XBIN, &status),
+                              logMessageStream.str() );
+
             str_val = std::to_string(int_val) + "x";
             int_val = (*this)[EAGLE_CAMERA_FEATURE_VBIN_NAME];
+            formatFitsLogMessage("fits_update_key", TINT, EAGLE_CAMERA_FITS_KEYWORD_NAME_YBIN, int_val,
+                                 EAGLE_CAMERA_FITS_KEYWORD_COMMENT_YBIN, &status);
+            CFITSIO_API_CALL( fits_update_key(_fitsFilePtr, TINT, EAGLE_CAMERA_FITS_KEYWORD_NAME_YBIN,
+                                              &int_val, EAGLE_CAMERA_FITS_KEYWORD_COMMENT_YBIN, &status),
+                              logMessageStream.str() );
+
+
             str_val += std::to_string(int_val);
             formatFitsLogMessage("fits_update_key", TSTRING, EAGLE_CAMERA_FITS_KEYWORD_NAME_BINNING, str_val,
                                  EAGLE_CAMERA_FITS_KEYWORD_COMMENT_BINNING, &status);
@@ -777,11 +808,11 @@ void EagleCamera::startAcquisition()
             str_f = (*this)[EAGLE_CAMERA_FEATURE_SHUTTER_STATE_NAME];
             str_val = std::string(EAGLE_CAMERA_FITS_KEYWORD_COMMENT_SHUTTER_STATE) + ": ";
             if ( !str_f.value().compare(EAGLE_CAMERA_FEATURE_SHUTTER_STATE_EXP) ) {
-                str_val += "open during exposure";
+                str_val += "open for duration exposure time";
             } else if ( !str_f.value().compare(EAGLE_CAMERA_FEATURE_SHUTTER_STATE_CLOSED) ) {
-                str_val += "permanently closed";
+                str_val += "always closed";
             } else if ( !str_f.value().compare(EAGLE_CAMERA_FEATURE_SHUTTER_STATE_OPEN) ) {
-                str_val += "permanently open";
+                str_val += "always open";
             }
             formatFitsLogMessage("fits_update_key", TSTRING, EAGLE_CAMERA_FITS_KEYWORD_NAME_SHUTTER_STATE,
                                  str_f.value(), str_val, &status);
