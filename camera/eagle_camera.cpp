@@ -130,16 +130,15 @@ EagleCamera::EagleCamera(const char *epix_video_fmt_filename):
     _startExpTimestamp(), _expTime(0),
     _ccdTemp(), _pcbTemp(),
     _startExpTimepoint(), _stopExpTimepoint(),
-    _imageBuffer(), _currentBufferLength(0),
+    _imageBuffer(), _currentBufferLength(0), _usedBuffersNumber(0),
     _capturingTimeoutGap(EAGLE_CAMERA_DEFAULT_CAPTURING_TIMEOUT_GAP),
     _acquisitionProccessThreadFuture(),
 
-//    _copyFramebuffersFuture(),
     _acquisitionProccessPollingInterval(EAGLE_CAMERA_DEFAULT_ACQUISITION_POLL_INTERVAL),
     _stopCapturing(true), _acquiringFinished(true),
     _lastCameraError(EagleCamera::Error_OK), _lastXCLIBError(0),
 
-    _fitsWritingMutex(),
+    _fitsWritingTimeout(EAGLE_CAMERA_DEFAULT_FITS_WRITING_TIMEOUT),
     _fitsFilePtr(nullptr),
     _fitsFilename(""), _fitsHdrFilename(""),
     _fitsDataFormat(EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_EXTEN),
@@ -147,8 +146,8 @@ EagleCamera::EagleCamera(const char *epix_video_fmt_filename):
     _ccdDimension(), _bitsPerPixel(0),
     _serialNumber(0), _buildDate(), _buildCode(),
     _microVersion(), _FPGAVersion(),
-    _ADC_Calib(), ADC_LinearCoeffs(),
-    _DAC_Calib(), DAC_LinearCoeffs(),
+    _ADC_Calib{0,0}, ADC_LinearCoeffs{0,0},
+    _DAC_Calib{0,0}, DAC_LinearCoeffs{0,0},
 
     PREDEFINED_CAMERA_FEATURES(),
     PREDEFINED_CAMERA_COMMANDS(),
@@ -159,11 +158,12 @@ EagleCamera::EagleCamera(const char *epix_video_fmt_filename):
             cameraVideoFormatFilename = epix_video_fmt_filename;
             std::string log_str = std::string("pxd_PIXCIopen(\"\",NULL,") + cameraVideoFormatFilename + ")";
             XCLIB_API_CALL( pxd_PIXCIopen("",NULL,epix_video_fmt_filename), log_str);
-        } else {
+
+        } else { // use of default format file for Eagle-V camera
             std::string log_str = "pxd_PIXCIopen(\"\",\"DEFAULT\",\"\")";
             XCLIB_API_CALL( pxd_PIXCIopen("","DEFAULT",""), log_str);
 
-            #include "raptor_eagle-v.fmt"
+            #include "raptor_eagle-v.fmt"      // exported from XCAP (Linux 64-bit!): bin 1x1, full CCD frame
             pxd_videoFormatAsIncludedInit(0);
 
             log_str = "pxd_videoFormatAsIncluded(0)";
@@ -190,7 +190,9 @@ EagleCamera::EagleCamera(const std::string & epix_video_fmt_filename):
 EagleCamera::~EagleCamera()
 {
     if ( !_acquiringFinished ) {
-        std::cout << "\nWAIT FOR ACQ FINISHED\n";
+#ifndef NDEBUG
+        std::cout << "\nDTOR: WAIT FOR ACQ FINISHED\n";
+#endif
         if ( _acquisitionProccessThreadFuture.valid() ) {
             try {
                 _acquisitionProccessThreadFuture.get(); // wait for acquiring ...  TODO: stop proccess ???!!!
@@ -393,23 +395,16 @@ void EagleCamera::startAcquisition()
     _lastCameraError = EagleCamera::Error_OK;
     _lastXCLIBError = 0;
 
-    // compute output image dimension
-
-    IntegerType binX = (*this)[EAGLE_CAMERA_FEATURE_HBIN_NAME];
-    IntegerType binY = (*this)[EAGLE_CAMERA_FEATURE_VBIN_NAME];
+    // get output image dimension
 
     _imageStartX = (*this)[EAGLE_CAMERA_FEATURE_ROI_LEFT_NAME];
     _imageStartY = (*this)[EAGLE_CAMERA_FEATURE_ROI_TOP_NAME];
 
-    IntegerType ccdImageXDim = (*this)[EAGLE_CAMERA_FEATURE_ROI_WIDTH_NAME];
-    IntegerType ccdImageYDim = (*this)[EAGLE_CAMERA_FEATURE_ROI_HEIGHT_NAME];
-    _imageXDim = static_cast<IntegerType>(std::ceil(1.0*ccdImageXDim/binX));
-    _imageYDim = static_cast<IntegerType>(std::ceil(1.0*ccdImageYDim/binY));
+    _imageXDim = (*this)[EAGLE_CAMERA_FEATURE_ROI_WIDTH_NAME];
+    _imageYDim = (*this)[EAGLE_CAMERA_FEATURE_ROI_HEIGHT_NAME];
 
     _expTime = (*this)[EAGLE_CAMERA_FEATURE_EXPTIME_NAME];
 
-
-//    _frameBuffersNumber = 3;
 
     _imagePixelsNumber = _imageXDim*_imageYDim;
 
@@ -430,15 +425,22 @@ void EagleCamera::startAcquisition()
     std::cout << "NUMBER OF FRAMEBUFFER LINES: " << _frameBufferLines << "\n";
 #endif
 
-    size_t Nbuffs;
+    size_t Nbuffs = (_frameBuffersNumber <= _frameCounts) ? _frameBuffersNumber : _frameCounts;
     try {
         if ( Nelem != _currentBufferLength ) {
             _currentBufferLength = Nelem;
-            Nbuffs = (_frameBuffersNumber <= _frameCounts) ? _frameBuffersNumber : _frameCounts;
+//            Nbuffs = (_frameBuffersNumber <= _frameCounts) ? _frameBuffersNumber : _frameCounts;
             for ( size_t i = 0; i < Nbuffs; ++i ) {
                 _imageBuffer[i] = std::unique_ptr<ushort[]>(new ushort[_currentBufferLength]);
             }
+        } else {
+            if ( _usedBuffersNumber < Nbuffs ) {
+                for ( size_t i = _usedBuffersNumber; i < Nbuffs; ++i ) {
+                    _imageBuffer[i] = std::unique_ptr<ushort[]>(new ushort[_currentBufferLength]);
+                }
+            }
         }
+        _usedBuffersNumber = Nbuffs;
     } catch ( std::bad_alloc ) {
         throw EagleCameraException(0, EagleCamera::Error_MemoryAllocation, "Cannot allocate memory for image buffer");
     }
@@ -527,6 +529,8 @@ void EagleCamera::startAcquisition()
             IntegerType i_frameSaving = 0;
             IntegerType i_frame;
 
+            std::chrono::system_clock::time_point startSavingTimepoint;
+
             for ( i_frame = 0; i_frame < _frameCounts; ++i_frame ) {
                 if ( run_capture.valid() ) { // wait for previous capturing&copying thread
                     auto wstatus = run_capture.wait_for(std::chrono::milliseconds(timeout));
@@ -544,7 +548,9 @@ void EagleCamera::startAcquisition()
 
                 // check for exposure abort signal
                 if ( _stopCapturing ) { // recompute exposure duration
-                    std::cout << "(stop before capturing) i_frame = " << i_frame << "\n";
+#ifndef NDEBUG
+                    std::cout << "\n(stop before capturing) i_frame = " << i_frame << "\n";
+#endif
                     std::chrono::duration<double> fp_s = _stopExpTimepoint-_startExpTimepoint;
                     stopFrameExpTime = fp_s.count();
                     break; // break cycle
@@ -560,7 +566,9 @@ void EagleCamera::startAcquisition()
                     // trigger single exposure
                     _startExpTimestamp[i_frame] = time_stamp(EAGLE_CAMERA_FITS_DATE_KEYWORD_FORMAT, true, &_startExpTimepoint);
                     setTriggerMode(CL_TRIGGER_MODE_SNAPSHOT);
+#ifndef NDEBUG
                     std::cout << "\nSTART TRIGGER\n";
+#endif
 
                     // read temperature values
 
@@ -585,19 +593,23 @@ void EagleCamera::startAcquisition()
                 // save images to FITS file asynchronously
 
                 if ( run_saving.valid() ) { // is saving thread still working?
-//                    auto wstatus = run_saving.wait_for(std::chrono::milliseconds(10000));
 
-//                    if ( wstatus != std::future_status::ready ) { // something wrong!
-//                        throw EagleCameraException(0,EagleCamera::Error_FitsWritingTimeout,
-//                                                   "A timeout occured while writing FITS image");
-//                    }
-
-                    auto wstatus = run_saving.wait_for(std::chrono::milliseconds(100));
-
-                    if ( wstatus == std::future_status::timeout ) continue; // capture next image
-                    if ( wstatus != std::future_status::ready ) { // something wrong!
+                    // check for writing timeout
+                    std::chrono::duration<double> diff = std::chrono::system_clock::now() - startSavingTimepoint;
+                    if ( std::chrono::duration_cast<std::chrono::milliseconds>(diff).count() >= _fitsWritingTimeout ) {
                         throw EagleCameraException(0,EagleCamera::Error_FitsWritingTimeout,
-                                                   "A timeout occured while writing FITS image");
+                                                   "A timeout occured while writing image buffer into FITS file");
+                    }
+
+                    auto wstatus = run_saving.wait_for(std::chrono::milliseconds(10));
+
+                    // CFITSIO API does not allow parallel writing so just start next capturing
+                    if ( wstatus == std::future_status::timeout ) {
+                        continue; // capture next image
+                    }
+                    if ( wstatus != std::future_status::ready ) { // something wrong!
+                        throw EagleCameraException(0,EagleCamera::Error_AcquisitionProccessError,
+                                                   "Acquisition proccess failed");
                     }
 
                     // here wstatus == std::future_status::ready
@@ -610,11 +622,11 @@ void EagleCamera::startAcquisition()
                     if ( i_frameSaving >= i_frame ) continue; // capture next image
                 }
 
+                startSavingTimepoint = std::chrono::system_clock::now();
                 run_saving = std::async(std::launch::async,
                                         &EagleCamera::saveToFitsFile, this, i_frameSaving,
                                         lastSavingBuffer, _expTime, exten_format);
 
-//                if ( _stopCapturing ) break; // break cycle
             }
 
             if ( run_capture.valid() ) {
@@ -630,10 +642,12 @@ void EagleCamera::startAcquisition()
             }
 
 
-            std::cout << "\nEND OF LOOP: _currentBuffer = " << _currentBuffer <<
+#ifndef NDEBUG
+            std::cout << "\nEND OF ACQUISITION LOOP: _currentBuffer = " << _currentBuffer <<
                          ", lastSavingBuffer = " << lastSavingBuffer << "\n" <<
                          "             i_frame = " << i_frame <<
                          ", i_frameSaving = " << i_frameSaving << "\n";
+#endif
 
             if ( i_frameSaving < i_frame ) { // save remainder of buffers list
                 if ( _currentBuffer > lastSavingBuffer ) {
@@ -671,13 +685,15 @@ void EagleCamera::startAcquisition()
                     CFITSIO_API_CALL( fits_update_key(_fitsFilePtr, TLONG ,"NAXIS3", &val, NULL, &status),
                                       logMessageStream.str() );
                 } else { // delete keyword because of it is now just 2-dim image, and update "NAXIS" keyword
-                    val = 2;
-                    formatFitsLogMessage("fits_update_key", TLONG ,"NAXIS", val,NULL,(void*)&status);
-                    CFITSIO_API_CALL( fits_update_key(_fitsFilePtr, TLONG ,"NAXIS", &val, NULL, &status),
-                                      logMessageStream.str() );
-                    formatFitsLogMessage("fits_delete_key","NAXIS3",(void*)&status);
-                    CFITSIO_API_CALL( fits_delete_key(_fitsFilePtr,"NAXIS3",&status),
-                                      logMessageStream.str());
+                    if ( _frameCounts > 1 ) {
+                        val = 2;
+                        formatFitsLogMessage("fits_update_key", TLONG ,"NAXIS", val,NULL,(void*)&status);
+                        CFITSIO_API_CALL( fits_update_key(_fitsFilePtr, TLONG ,"NAXIS", &val, NULL, &status),
+                                          logMessageStream.str() );
+                        formatFitsLogMessage("fits_delete_key","NAXIS3",(void*)&status);
+                        CFITSIO_API_CALL( fits_delete_key(_fitsFilePtr,"NAXIS3",&status),
+                                          logMessageStream.str());
+                    }
                 }
             }
 
@@ -743,7 +759,9 @@ void EagleCamera::startAcquisition()
                 }
             }
 
-            std::cout << "Save keywords ...\n";
+#ifndef NDEBUG
+            std::cout << "Save FITS keywords ...\n";
+#endif
 
             // move to primary HDU (needs if multiple extensions format was used)
             formatFitsLogMessage("fits_movabs_hdu", 1, 0, (void*)&status);
@@ -923,15 +941,21 @@ void EagleCamera::startAcquisition()
             formatFitsLogMessage("fits_close_file",(void*)&status);
             CFITSIO_API_CALL( fits_close_file(_fitsFilePtr,&status), logMessageStream.str());
 
-            std::cout << "  OK\n";
+#ifndef NDEBUG
+            std::cout << "  OK (FITS keywords)\n";
+#endif
         } catch ( EagleCameraException ex ) {
+#ifndef NDEBUG
             std::cout << "ACQ PROCCESS ERROR: " << ex.XCLIB_Error() << ", " << ex.Camera_Error() << "\n";
             std::cout << "ACQ PROCCESS ERROR: " << ex.what() << "\n";
+#endif
             _acquiringFinished = true;
             throw ex;
         }
 
-        std::cout << "END OF ACQ\n";
+#ifndef NDEBUG
+        std::cout << "END OF ACQUSITION\n";
+#endif
         _acquiringFinished = true;
     });
 
@@ -948,14 +972,16 @@ void EagleCamera::startAcquisition()
 
 void EagleCamera::stopAcquisition()
 {
+#ifndef NDEBUG
     std::cout << "\nABORT EXPOSURE!!!\n";
+#endif
     _stopExpTimepoint = std::chrono::system_clock::now();
     setTriggerMode(CL_TRIGGER_MODE_ABORT_CURRENT_EXP); // set abort exp bit
     _stopCapturing = true;
 }
 
 
-void EagleCamera::imageReady(const IntegerType frame_no, const ushort *image_buffer)
+void EagleCamera::imageReady(const IntegerType frame_no, const ushort *image_buffer, const size_t buffer_len)
 {
 }
 
@@ -1030,7 +1056,7 @@ void EagleCamera::logToFile(const EagleCamera::EagleCameraLogIdent ident, const 
 
 void EagleCamera::logToFile(const EagleCameraException &ex, const int indent_tabs)
 {
-    if ( ex.XCLIB_Error() < 0 ) {
+    if ( ex.XCLIB_Error() < 0 ) { // XCLIB errors
         std::string log_str = ex.what();
         log_str += " [XCLIB ERROR CODE: " + std::to_string(ex.XCLIB_Error()) + "]";
 
@@ -1039,7 +1065,11 @@ void EagleCamera::logToFile(const EagleCameraException &ex, const int indent_tab
 
     if ( ex.Camera_Error() != EagleCamera::Error_OK ) {
         std::string log_str = ex.what();
-        log_str += " [CAMERA ERROR CODE: " + std::to_string(ex.Camera_Error()) + "]";
+        if ( ex.Camera_Error() == EagleCamera::Error_FITS_ERR ) {
+            log_str += " [CFITSIO ERROR CODE: " + std::to_string(ex.XCLIB_Error()) + "]";
+        } else {
+            log_str += " [CAMERA ERROR CODE: " + std::to_string(ex.Camera_Error()) + "]";
+        }
 
         logToFile(EagleCamera::LOG_IDENT_CAMERA_ERROR, log_str, indent_tabs);
     }
@@ -1054,47 +1084,30 @@ void EagleCamera::doSnapAndCopy(const ulong timeout, const IntegerType frame_no,
     char col[] = "Gray";
 
     try {
+#ifndef NDEBUG
         std::cout << "\nCAPTURE (frame_no = " << frame_no << ", buff_no = " << buff_no << ") ";
+#endif
 
         formatLogMessage("pxd_doSnap", 1, timeout);
         XCLIB_API_CALL( pxd_doSnap(cameraUnitmap, 1, timeout), logMessageStream.str());
 
 
-//        pxcoord_t ulx = _imageStartX - 1; // "-1" since '_imageStartX' in FITS coordinates notation (starting from 1)
-//        pxcoord_t uly = _imageStartY - 1;
-
-//        ulx=0;
-//        uly=0;
-//        pxcoord_t lrx = ulx + _imageXDim;
-//        pxcoord_t lry = uly + _imageYDim;
-
-
-//        formatLogMessage("pxd_readushort",1, ulx, uly, lrx, lry,
-//                         (void*)_imageBuffer[buff_no].get(),_currentBufferLength,col);
-
-//        std::cout << "AND READ IMAGE TO BUFFER ...";
-//        XCLIB_API_CALL(pxd_readushort(cameraUnitmap, 1, ulx, uly, lrx, lry, _imageBuffer[buff_no].get(),
-//                                      _currentBufferLength, (char*)col),
-//                logMessageStream.str());
-
         formatLogMessage("pxd_readushort",1, 0, 0, -1, _frameBufferLines,
                          (void*)_imageBuffer[buff_no].get(),_currentBufferLength,col);
 
+#ifndef NDEBUG
         std::cout << "AND READ IMAGE TO BUFFER ...";
+#endif
+
         XCLIB_API_CALL(pxd_readushort(cameraUnitmap, 1, 0, 0, -1, _frameBufferLines, _imageBuffer[buff_no].get(),
                                       _currentBufferLength, (char*)col),
                 logMessageStream.str());
 
-//        formatLogMessage("pxd_readushort",1, 0,0,-1,-1,
-//                         (void*)_imageBuffer[buff_no].get(),_currentBufferLength,col);
+        imageReady(frame_no,_imageBuffer[buff_no].get(), _imagePixelsNumber);
 
-//        std::cout << "AND READ IMAGE TO BUFFER ...";
-//        XCLIB_API_CALL(pxd_readushort(cameraUnitmap, 1, 0, 0, -1, -1, _imageBuffer[buff_no].get(),
-//                                      _currentBufferLength, (char*)col),
-//                logMessageStream.str());
-
-        imageReady(frame_no,_imageBuffer[buff_no].get());
-        std::cout << "OK\n";
+#ifndef NDEBUG
+        std::cout << "OK CAPTURE & READ\n";
+#endif
     } catch ( EagleCameraException &ex ) {
         throw;
     }
@@ -1107,8 +1120,10 @@ void EagleCamera::saveToFitsFile(const IntegerType frame_no, const IntegerType b
     int status = 0;
 
     try {
+#ifndef NDEBUG
         std::cout << "\nSave FITS (i_frameSaving = " << frame_no <<
                      ", lastBufferSaving = " << buff_no << ")  ...";
+#endif
 
         if ( as_extension ) {
             long naxes[2] = {_imageXDim, _imageYDim};
@@ -1148,11 +1163,6 @@ void EagleCamera::saveToFitsFile(const IntegerType frame_no, const IntegerType b
             CFITSIO_API_CALL( fits_write_img(_fitsFilePtr, TUSHORT, 1, _imagePixelsNumber,
                                              (void*)_imageBuffer[buff_no].get(), &status),
                               logMessageStream.str() );
-//            formatFitsLogMessage("fits_write_img", TUSHORT, 1, _currentBufferLength,
-//                                 (void*)_imageBuffer[buff_no].get(), (void*)&status);
-//            CFITSIO_API_CALL( fits_write_img(_fitsFilePtr, TUSHORT, 1, _currentBufferLength,
-//                                             (void*)_imageBuffer[buff_no].get(), &status),
-//                              logMessageStream.str() );
         } else {
             if ( frame_no == 0 ) {
                 // write 'DATE-OBS'
@@ -1163,18 +1173,12 @@ void EagleCamera::saveToFitsFile(const IntegerType frame_no, const IntegerType b
                                                   EAGLE_CAMERA_FITS_KEYWORD_COMMENT_DATEOBS, &status),
                                   logMessageStream.str());
             }
-//            long first_pix = frame_no*_imageXDim*_imageYDim + 1;
             long first_pix = frame_no*_imagePixelsNumber + 1;
             formatFitsLogMessage("fits_write_img", TUSHORT, first_pix, _imagePixelsNumber,
                                  (void*)_imageBuffer[buff_no].get(), (void*)&status);
             CFITSIO_API_CALL( fits_write_img(_fitsFilePtr, TUSHORT, first_pix, _imagePixelsNumber,
                                              (void*)_imageBuffer[buff_no].get(), &status),
                               logMessageStream.str() );
-//            formatFitsLogMessage("fits_write_img", TUSHORT, first_pix, _currentBufferLength,
-//                                 (void*)_imageBuffer[buff_no].get(), (void*)&status);
-//            CFITSIO_API_CALL( fits_write_img(_fitsFilePtr, TUSHORT, first_pix, _currentBufferLength,
-//                                             (void*)_imageBuffer[buff_no].get(), &status),
-//                              logMessageStream.str() );
         }
         // write exposure duration keyword
 
@@ -1184,7 +1188,9 @@ void EagleCamera::saveToFitsFile(const IntegerType frame_no, const IntegerType b
                                           (void*)&exp_time, EAGLE_CAMERA_FITS_KEYWORD_COMMENT_EXPTIME, &status),
                           logMessageStream.str());
 
-        std::cout << "  OK\n";
+#ifndef NDEBUG
+        std::cout << "  OK (Save FITS)\n";
+#endif
     } catch ( EagleCameraException &ex ) {
         throw;
     }

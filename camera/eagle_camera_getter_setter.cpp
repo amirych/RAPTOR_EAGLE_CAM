@@ -238,7 +238,10 @@ void EagleCamera::setROIWidth(const EagleCamera::IntegerType val) // val is in b
 
 EagleCamera::IntegerType EagleCamera::getROIWidth()
 {
-    return getGeometryValue(EagleCamera::GV_ROIWIDTH);
+    IntegerType ccd_width = getGeometryValue(EagleCamera::GV_ROIWIDTH);
+    IntegerType binX = getXBIN();
+
+    return static_cast<IntegerType>(std::ceil(1.0*ccd_width/binX)); // return width in binned pixels
 }
 
 
@@ -255,17 +258,15 @@ void EagleCamera::setROIHeight(const EagleCamera::IntegerType val)
     IntegerType max_h = _ccdDimension[1] - startY;
 
     setGeometryValue(EagleCamera::GV_ROIHEIGHT, (val_ccd < max_h) ? val_ccd : max_h);
-
-//    IntegerType max_h = static_cast<IntegerType>(ceil(1.0*(_ccdDimension[1]-startY)/binY));
-
-//    if ( max_h < val ) setGeometryValue(EagleCamera::GV_ROIHEIGHT, max_h);
-//    else setGeometryValue(EagleCamera::GV_ROIHEIGHT, val);
 }
 
 
 EagleCamera::IntegerType EagleCamera::getROIHeight()
 {
-    return getGeometryValue(EagleCamera::GV_ROIHEIGHT);
+    IntegerType ccd_height = getGeometryValue(EagleCamera::GV_ROIHEIGHT);
+    IntegerType binY = getYBIN();
+
+    return static_cast<IntegerType>(std::ceil(1.0*ccd_height/binY)); // return height in binned pixels
 }
 
 
@@ -524,7 +525,14 @@ std::string EagleCamera::getReadoutMode()
 
 void EagleCamera::setExpTime(const double val)
 {
-    IntegerType counts = static_cast<IntegerType>(ceil(val/2.5E-8)); // in FPGA counts, 1 count = 25nsecs = 1/40MHz
+    IntegerType counts;
+
+    double v = log10(val);
+
+    if ( v > 7 ) counts = static_cast<IntegerType>(ceil(val/2.5E-8));
+    else counts = static_cast<IntegerType>(val/2.5E-8);
+
+//    IntegerType counts = static_cast<IntegerType>(ceil(val/2.5E-8)); // in FPGA counts, 1 count = 25nsecs = 1/40MHz
 
     byte_vector_t addr = {0xED, 0xEE, 0xEF, 0xF0, 0xF1};
     byte_vector_t value = countsToFPGA40Bits(counts);

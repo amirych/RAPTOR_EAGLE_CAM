@@ -68,10 +68,10 @@ void EagleCamera::InitCameraFeatures()
                     (&EagleCamera::setROIHeight), this, std::placeholders::_1)
                 ));
 
-    // exposure time in seconds. min is 25nsec (1 count in FPGA), but it is no real min!!!
+    // exposure time in seconds. min is 0 (0 count in FPGA), but it is no real min!!!
     PREDEFINED_CAMERA_FEATURES[EAGLE_CAMERA_FEATURE_EXPTIME_NAME] = std::unique_ptr<EagleCamera::CameraAbstractFeature>(
             new EagleCamera::CameraFeature<double>( EAGLE_CAMERA_FEATURE_EXPTIME_NAME,
-                    EagleCamera::ReadWrite, {2.5E-8, 27487.7906944},
+                    EagleCamera::ReadWrite, {0.0, 27487.7906944},
                     std::bind(static_cast<double(EagleCamera::*)()>
                     (&EagleCamera::getExpTime), this),
                     std::bind(static_cast<void(EagleCamera::*)(const double)>

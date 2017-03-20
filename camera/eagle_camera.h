@@ -64,9 +64,13 @@
                                                        // the final timeout is one for capturing proccess
                                                        // (see doSnap XCLIB function)
 
+#define EAGLE_CAMERA_DEFAULT_FITS_WRITING_TIMEOUT 100000 // in milliseconds (100 secs)
+                                                         // default timeout for writing each image buffer into FITS file
+
 #define EAGLE_CAMERA_DEFAULT_NUMBER_OF_BUFFERS 10 // default number of buffers used for FITS file saving
 
 #define EAGLE_CAMERA_DEFAULT_BUFFER_TIMEOUT 10  // default timeout in seconds for captured image buffer copying proccess
+
 #define EAGLE_CAMERA_DEFAULT_ACQUISITION_POLL_INTERVAL 100 // default interval in milliseconds for polling of acquisition
                                                            // proccess
 #define EAGLE_CAMERA_DEFAULT_LOG_TAB 3        // default tabulation in symbols for logging
@@ -204,10 +208,10 @@ public:
 
     // is invoked every time image was captured and
     // copied to buffer pointed by 'image_buffer'.
-    // size of the buffer is in _currentBufferLength.
+    // size of the buffer is in 'buff_len'.
     // in 'frame_no' a sequence number of frame for 'image_buffer' will be returned.
     // 'frame_no' starts from 0!!!
-    void virtual imageReady(const IntegerType frame_no, const ushort* image_buffer);
+    void virtual imageReady(const IntegerType frame_no, const ushort* image_buffer, const size_t buffer_len);
 
     void logToFile(const EagleCamera::EagleCameraLogIdent ident, const std::string &log_str, const int indent_tabs = 0);
     void logToFile(const EagleCameraException &ex, const int indent_tabs = 0);
@@ -519,12 +523,13 @@ protected:
     std::vector<double> _pcbTemp;
     std::vector<std::unique_ptr<ushort[]>> _imageBuffer; // image buffers addresses
     size_t _currentBufferLength;
+    size_t _usedBuffersNumber;
 
     fitsfile* _fitsFilePtr;
     std::string _fitsFilename;
     std::string _fitsHdrFilename;
     std::string _fitsDataFormat;
-    std::mutex _fitsWritingMutex;
+    long _fitsWritingTimeout; // timeout in milliseconds for writing each image buffer into FITS file
 
     EagleCamera::EagleCameraError _lastCameraError;
     int _lastXCLIBError;

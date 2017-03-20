@@ -48,20 +48,17 @@ int main(int argc, char* argv[])
 
         cam[EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_NAME] = "EXTEN";
 
-        std::cout << "INIT XBIN: " << (int) cam[EAGLE_CAMERA_FEATURE_HBIN_NAME] << "\n";
-        std::cout << "INIT YBIN: " << (int) cam[EAGLE_CAMERA_FEATURE_VBIN_NAME] << "\n";
-
         if ( argc > 1 ) {
             for ( int i = 1; i < argc; ++i ) {
-//                std::cout << "ARGV = '" << argv[i] << "'\n";
                 auto search = cmd_map.find(argv[i]);
                 if ( search != cmd_map.end() ) {
-                    std::cout << "OPT: '" << argv[i] << "'\n";
-                    std::cout << "CMD: '" << cmd_map[argv[i]] << "'\n";
+//                    std::cout << "OPT: '" << argv[i] << "'\n";
+                    std::cout << "FEATURE: '" << cmd_map[argv[i]] << "' = ";
                     if ( (i+1) > argc ) {
                         std::cerr << "INVALID ARGUMENT!\n";
                         return 1;
                     }
+                    std::cout << argv[i+1] << "\n";
                     try {
                         val = std::stod(argv[i+1]);
                         cam[search->second] = val;
@@ -76,6 +73,7 @@ int main(int argc, char* argv[])
 
                     if ( !strcmp(argv[i],"-c") ) {
                         cam[EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_NAME] = "CUBE";
+                        std::cout << "FEATURE: '" << EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_NAME << "' = CUBE\n";
                     }
                 }
             }
