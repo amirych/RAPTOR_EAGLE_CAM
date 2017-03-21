@@ -281,28 +281,35 @@ void EagleCamera::InitCameraFeatures()
                ));
 
 
+    PREDEFINED_CAMERA_FEATURES[EAGLE_CAMERA_FEATURE_FRAME_BUFFERS_NUMBER_NAME] = std::unique_ptr<EagleCamera::CameraAbstractFeature>(
+            new EagleCamera::CameraFeature<EagleCamera::IntegerType>( EAGLE_CAMERA_FEATURE_FRAME_BUFFERS_NUMBER_NAME,
+                    EagleCamera::ReadWrite, {1,std::numeric_limits<IntegerType>::max()},
+                    [this]() {return _frameBuffersNumber;},
+                    [this](const EagleCamera::IntegerType fn){_frameBuffersNumber = fn;}
+               ));
+
 }
 
 
 void EagleCamera::InitCameraCommands()
 {
-    PREDEFINED_CAMERA_COMMANDS["INIT"] = std::unique_ptr<CameraAbstractCommand>(
-                new CameraCommand<int, std::ostream*>( "INIT",
+    PREDEFINED_CAMERA_COMMANDS[EAGLE_CAMERA_COMMAND_INIT] = std::unique_ptr<CameraAbstractCommand>(
+                new CameraCommand<int, std::ostream*>( EAGLE_CAMERA_COMMAND_INIT,
                                  std::bind(static_cast<void(EagleCamera::*)(const int, std::ostream*)>
                                  (&EagleCamera::initCamera), this, std::placeholders::_1, std::placeholders::_2))
                                                                                );
-    PREDEFINED_CAMERA_COMMANDS["RESET"] = std::unique_ptr<CameraAbstractCommand>(
-                new CameraCommand<>( "RESET", std::bind(static_cast<void(EagleCamera::*)()>
+    PREDEFINED_CAMERA_COMMANDS[EAGLE_CAMERA_COMMAND_RESET] = std::unique_ptr<CameraAbstractCommand>(
+                new CameraCommand<>( EAGLE_CAMERA_COMMAND_RESET, std::bind(static_cast<void(EagleCamera::*)()>
                                  (&EagleCamera::resetCamera), this)) );
 
 
-    PREDEFINED_CAMERA_COMMANDS["EXPSTART"] = std::unique_ptr<CameraAbstractCommand>(
-                new CameraCommand<>( "EXPSTART", std::bind(static_cast<void(EagleCamera::*)()>
+    PREDEFINED_CAMERA_COMMANDS[EAGLE_CAMERA_COMMAND_EXPSTART] = std::unique_ptr<CameraAbstractCommand>(
+                new CameraCommand<>( EAGLE_CAMERA_COMMAND_EXPSTART, std::bind(static_cast<void(EagleCamera::*)()>
                                  (&EagleCamera::startAcquisition), this)) );
 
 
-    PREDEFINED_CAMERA_COMMANDS["EXPSTOP"] = std::unique_ptr<CameraAbstractCommand>(
-                new CameraCommand<>( "EXPSTOP", std::bind(static_cast<void(EagleCamera::*)()>
+    PREDEFINED_CAMERA_COMMANDS[EAGLE_CAMERA_COMMAND_EXPSTOP] = std::unique_ptr<CameraAbstractCommand>(
+                new CameraCommand<>( EAGLE_CAMERA_COMMAND_EXPSTOP, std::bind(static_cast<void(EagleCamera::*)()>
                                  (&EagleCamera::stopAcquisition), this)) );
 
 }

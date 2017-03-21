@@ -48,6 +48,12 @@ target_link_libraries(${EAGLE_CAMERA_LIB} ${CFITSIO_LIBRARIES})
 target_compile_definitions(${EAGLE_CAMERA_LIB} PRIVATE EAGLE_CAMERA_LIBRARY=1)
 
 
+# Network protocol library
+set(NET_PROTO_LIB net_proto)
+aux_source_directory(./netproto/ NET_PROTO_SRC)
+add_library(${NET_PROTO_LIB} SHARED ${NET_PROTO_SRC})
+
+
 # commandline client
 set(EAGLE_CAMERA_CMD eaglecam_cmd)
 add_executable(${EAGLE_CAMERA_CMD} eaglecam_cmd.cpp)

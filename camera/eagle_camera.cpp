@@ -373,6 +373,8 @@ void EagleCamera::setInitialState()
 
 void EagleCamera::resetCamera() // full reset (microcontroller and FPGA)
 {
+    if ( cameraUnitmap < 1 ) return; // camera does not initialized. nothing to do.
+
     stopAcquisition();
     _acquiringFinished = true;
 
@@ -381,12 +383,16 @@ void EagleCamera::resetCamera() // full reset (microcontroller and FPGA)
 
     resetMicro();
     resetFPGA();
+
+    setInitialState();
 }
 
 
 void EagleCamera::startAcquisition()
 {
     // main thread blocking part:
+
+    if ( !_acquiringFinished ) throw EagleCameraException(0,EagleCamera::Error_CameraIsAcquiring,"Camera is acquiring");
 
     if ( _fitsFilename.empty() ) return;
 
@@ -423,6 +429,7 @@ void EagleCamera::startAcquisition()
     std::cout << "ROI TOP-LEFT COORDINATES: [" << _imageStartX << ", " << _imageStartY << "]\n";
     std::cout << "NUMBER OF PIXELS IN THE IMAGE: " << _imagePixelsNumber << "\n";
     std::cout << "NUMBER OF FRAMEBUFFER LINES: " << _frameBufferLines << "\n";
+    std::cout << "NUMBER OF API FRAME BUFFERS: " << _frameBuffersNumber << "\n";
 #endif
 
     size_t Nbuffs = (_frameBuffersNumber <= _frameCounts) ? _frameBuffersNumber : _frameCounts;
@@ -586,7 +593,7 @@ void EagleCamera::startAcquisition()
                     if ( i_frame == 0 ) run_capture.get(); // wait for the first image
 
                     ++_currentBuffer;
-                    if ( _currentBuffer == _imageBuffer.size() ) _currentBuffer = 0;
+                    if ( _currentBuffer == _frameBuffersNumber ) _currentBuffer = 0;
 
                 } else --i_frame;
 
@@ -616,7 +623,7 @@ void EagleCamera::startAcquisition()
                     run_saving.get();
 
                     ++lastSavingBuffer; // ready to save next image
-                    if ( lastSavingBuffer == _imageBuffer.size() ) lastSavingBuffer = 0;
+                    if ( lastSavingBuffer == _frameBuffersNumber ) lastSavingBuffer = 0;
                     ++i_frameSaving;
 
                     if ( i_frameSaving >= i_frame ) continue; // capture next image
@@ -638,7 +645,7 @@ void EagleCamera::startAcquisition()
                 ++i_frameSaving;
 
                 ++lastSavingBuffer; // ready to save next image
-                if ( lastSavingBuffer == _imageBuffer.size() ) lastSavingBuffer = 0;
+                if ( lastSavingBuffer == _frameBuffersNumber ) lastSavingBuffer = 0;
             }
 
 
@@ -655,7 +662,7 @@ void EagleCamera::startAcquisition()
                         saveToFitsFile(i_frameSaving++, i, _expTime, exten_format);
                     }
                 } else {
-                    for ( IntegerType i = lastSavingBuffer; i < _imageBuffer.size(); ++i ) {
+                    for ( IntegerType i = lastSavingBuffer; i < _frameBuffersNumber; ++i ) {
                         saveToFitsFile(i_frameSaving++, i, _expTime, exten_format);
                     }
                     for ( IntegerType i = 0; i < _currentBuffer; ++i ) {

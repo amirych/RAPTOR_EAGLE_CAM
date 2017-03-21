@@ -181,7 +181,7 @@ public:
                             Error_FeatureValueIsOutOfRange, Error_InvalidFeatureValue,
                             Error_UnexpectedFPGAValue,
                             Error_AcquisitionProccessError, Error_CopyBufferTimeout,
-                            Error_FitsWritingTimeout,
+                            Error_FitsWritingTimeout, Error_CameraIsAcquiring,
                             Error_OK = 0,
                             // errors from EAGLE V 4240 Instruction Manual
                             Error_ETX_SER_TIMEOUT = 0x51, Error_ETX_CK_SUM_ERR,
@@ -810,7 +810,16 @@ private:
 
 
 
+                    /**************************************
+                    *                                     *
+                    *   DEFINITIONS FOR CAMERA COMMANDS   *
+                    *                                     *
+                    **************************************/
 
+#define EAGLE_CAMERA_COMMAND_INIT "INIT"
+#define EAGLE_CAMERA_COMMAND_RESET "RESET"
+#define EAGLE_CAMERA_COMMAND_EXPSTART "EXPSTART"
+#define EAGLE_CAMERA_COMMAND_EXPSTOP  "EXPSTOP"
 
 
                     /*******************************************************
@@ -846,10 +855,10 @@ private:
 #define EAGLE_CAMERA_FEATURE_FPGA_VERSION_NAME    "FPGAVersion"
 #define EAGLE_CAMERA_FEATURE_MICRO_VERSION_NAME   "MicroVersion"
 
-#define EAGLE_CAMERA_FEATURE_FRAME_COUNTS_NAME        "FrameCount"
-#define EAGLE_CAMERA_FEATURE_FITS_FILENAME_NAME       "FitsFilename"
-#define EAGLE_CAMERA_FEATURE_FITS_HDR_FILENAME_NAME   "FitsHdrFilename"
-
+#define EAGLE_CAMERA_FEATURE_FRAME_COUNTS_NAME         "FrameCount"
+#define EAGLE_CAMERA_FEATURE_FITS_FILENAME_NAME        "FitsFilename"
+#define EAGLE_CAMERA_FEATURE_FITS_HDR_FILENAME_NAME    "FitsHdrFilename"
+#define EAGLE_CAMERA_FEATURE_FRAME_BUFFERS_NUMBER_NAME "FrameBuffers"
 
 
             /***************************************************

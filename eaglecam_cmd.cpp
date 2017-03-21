@@ -21,7 +21,8 @@ std::map<std::string, std::string> cmd_map =
     {"-g",EAGLE_CAMERA_FEATURE_PREAMP_GAIN_NAME},
     {"-r",EAGLE_CAMERA_FEATURE_READOUT_RATE_NAME},
     {"-fh",EAGLE_CAMERA_FEATURE_FITS_HDR_FILENAME_NAME},
-    {"-ff",EAGLE_CAMERA_FEATURE_FITS_FILENAME_NAME}
+    {"-ff",EAGLE_CAMERA_FEATURE_FITS_FILENAME_NAME},
+    {"-fb",EAGLE_CAMERA_FEATURE_FRAME_BUFFERS_NUMBER_NAME}
 };
 
 
@@ -44,7 +45,21 @@ int main(int argc, char* argv[])
         EagleCamera cam;
         camera_ptr = &cam;
         cam.setLogLevel(EagleCamera::LOG_LEVEL_ERROR);
+
         cam.initCamera(1, &std::cout);
+
+        if ( argc > 1 ) {
+            for ( int i = 1; i < argc; ++i ) {
+                if ( !strcmp(argv[i],"-v") ) {
+                    cam.setLogLevel(EagleCamera::LOG_LEVEL_VERBOSE);
+                }
+
+                if ( !strcmp(argv[i],"-rs") ) {
+                    cam.resetCamera();
+                }
+            }
+        }
+
 
         cam[EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_NAME] = "EXTEN";
 
@@ -67,10 +82,6 @@ int main(int argc, char* argv[])
                     }
                     ++i;
                 } else {
-                    if ( !strcmp(argv[i],"-v") ) {
-                        cam.setLogLevel(EagleCamera::LOG_LEVEL_VERBOSE);
-                    }
-
                     if ( !strcmp(argv[i],"-c") ) {
                         cam[EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_NAME] = "CUBE";
                         std::cout << "FEATURE: '" << EAGLE_CAMERA_FEATURE_FITS_DATA_FORMAT_NAME << "' = CUBE\n";
