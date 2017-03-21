@@ -13,6 +13,9 @@
     // for MS compilers: disable multiple warnings about DLL-exports for the STL containers
     // (and many others C++11 defined classes)
     #pragma warning( disable: 4251 )
+    // for MS compilers: disable warning related to new way of initializing
+    // of array-type class members in constructor initializing list
+    #pragma warning( disable: 4351 )
 #if (_MSC_VER > 1800)
     #define NOEXCEPT_DECL noexcept
     #define MIN_INT_VALUE std::numeric_limits<int>::min()

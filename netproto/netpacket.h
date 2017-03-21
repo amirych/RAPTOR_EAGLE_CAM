@@ -31,6 +31,8 @@ public:
     NetPacket(const NetPacketID id, const std::string &content);
     NetPacket(const NetPacketID id, const char *content);
 
+    virtual ~NetPacket();
+
     void setID(const NetPacket::NetPacketID id);
 
     template<typename... T>
@@ -109,18 +111,36 @@ protected:
 
             /*  Class definition for FEATURE-type network packet  */
 
+enum NetPacketFeatureType {NETPACKET_FEATURE_UNKNOWN = -1, NETPACKET_FEATURE_INTTYPE,
+                           NETPACKET_FEATURE_FLOATYPE, NETPACKET_FEATURE_STRINGTYPE};
 
-template<typename T>
-class NetPacketFeature: public NetPacket
+class NetPacketAbstractFeature: public NetPacket
 {
 public:
-    NetPacketFeature(const std::string &name, const T &value);
-
+    NetPacketFeatureType type() const;
     std::string name() const;
+
+protected:
+    NetPacketAbstractFeature(const NetPacketFeatureType type, const std::string &name);
+    NetPacketAbstractFeature(const NetPacketFeatureType type, const char *name);
+
+    virtual ~NetPacketAbstractFeature();
+
+    NetPacketFeatureType _type;
+    std::string _name;
+};
+
+
+template<typename T, NetPacketFeatureType type>
+class NetPacketFeature: public NetPacketAbstractFeature
+{
+public:
+    NetPacketFeature(const std::string &name, const T value);
+    NetPacketFeature(const char *name, const T value);
+
     T value() const;
 
 protected:
-    std::string _name;
     T _value;
 };
 

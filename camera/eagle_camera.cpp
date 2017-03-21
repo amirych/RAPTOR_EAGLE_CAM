@@ -146,8 +146,10 @@ EagleCamera::EagleCamera(const char *epix_video_fmt_filename):
     _ccdDimension(), _bitsPerPixel(0),
     _serialNumber(0), _buildDate(), _buildCode(),
     _microVersion(), _FPGAVersion(),
-    _ADC_Calib{0,0}, ADC_LinearCoeffs{0,0},
-    _DAC_Calib{0,0}, DAC_LinearCoeffs{0,0},
+//    _ADC_Calib{0,0}, ADC_LinearCoeffs{0,0},
+//    _DAC_Calib{0,0}, DAC_LinearCoeffs{0,0},
+    _ADC_Calib(), ADC_LinearCoeffs(),
+    _DAC_Calib(), DAC_LinearCoeffs(),
 
     PREDEFINED_CAMERA_FEATURES(),
     PREDEFINED_CAMERA_COMMANDS(),

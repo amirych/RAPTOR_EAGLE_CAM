@@ -6,7 +6,7 @@
                     /*  Network packet base class implementation  */
 
 NetPacket::NetPacket(const NetPacketID id, const std::string &content):
-    _id(id), _content(content)
+    _id(id), _content(content), _packet()
 {
     makePacket();
 }
@@ -21,6 +21,12 @@ NetPacket::NetPacket(const NetPacketID id, const char *content):
 NetPacket::NetPacket(const NetPacketID id):
     NetPacket(id,std::string(""))
 {
+}
+
+
+NetPacket::~NetPacket()
+{
+
 }
 
 
@@ -155,23 +161,52 @@ void NetPacketCommand::makePacket()
 
                 /*  Class implementation for FEATURE-type network packet  */
 
-template<typename T>
-NetPacketFeature<T>::NetPacketFeature(const std::string &name, const T &value):
-    NetPacket(NetPacket::NETPACKET_ID_FEATURE), _name(name), _value(value)
+NetPacketAbstractFeature::NetPacketAbstractFeature(const NetPacketFeatureType type, const std::string &name):
+    NetPacket(NetPacket::NETPACKET_ID_FEATURE), _type(type), _name(name)
+{
+}
+
+
+NetPacketAbstractFeature::NetPacketAbstractFeature(const NetPacketFeatureType type, const char *name):
+    NetPacketAbstractFeature(type, std::string(name))
+{
+}
+
+
+NetPacketAbstractFeature::~NetPacketAbstractFeature()
+{
+}
+
+
+NetPacketFeatureType NetPacketAbstractFeature::type() const
+{
+    return _type;
+}
+
+std::string NetPacketAbstractFeature::name() const
+{
+    return _name;
+}
+
+
+
+template<typename T, NetPacketFeatureType type>
+NetPacketFeature<T, type>::NetPacketFeature(const std::string &name, const T value):
+    NetPacketAbstractFeature(type, name), _value(value)
 {
     setContent(_name,_value);
 }
 
 
-template<typename T>
-T NetPacketFeature<T>::value() const
+template<typename T, NetPacketFeatureType type>
+NetPacketFeature<T, type>::NetPacketFeature(const char *name, const T value):
+    NetPacketFeature<T,type>(std::string(name), value)
 {
-    return _value;
 }
 
 
-template<typename T>
-std::string NetPacketFeature<T>::name() const
+template<typename T, NetPacketFeatureType type>
+T NetPacketFeature<T, type>::value() const
 {
-    return _name;
+    return _value;
 }
