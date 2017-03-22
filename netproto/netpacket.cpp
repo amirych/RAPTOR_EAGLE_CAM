@@ -32,7 +32,7 @@ static std::string trim_spaces(const std::string& s, const std::string& whitespa
 }
 
 
-static std::vector<std::string> split_str(const std::string &str)
+static std::vector<std::string> split_str(const std::string &str, bool only_first = false)
 {
     std::vector<std::string> p;
     if ( str.empty() ) return p;
@@ -47,6 +47,10 @@ static std::vector<std::string> split_str(const std::string &str)
             break;
         } else {
             p.push_back(str.substr(i1,i2-i1));
+            if ( only_first ) {
+                p.push_back(str.substr(i2));
+                break;
+            }
         }
         i1 = str.find_first_not_of(NET_PROTO_PACKET_SEP_SYMBOL);
     }
@@ -221,7 +225,7 @@ void NetPacketHello::parsePacket()
         throw NetPacketException(NetPacket::NETPACKET_ERROR_ID_MISMATCH,"ID value does not correspond to packet type");
     }
 
-    std::vector<std::string> fields = split_str(_content);
+    std::vector<std::string> fields = split_str(_content, true);
 
     if ( !fields.size() ) {
         throw NetPacketException(NetPacket::NETPACKET_ERROR_INVALID_CONTENT_FIELD,
@@ -246,12 +250,8 @@ void NetPacketHello::parsePacket()
 
         _senderID = static_cast<NetPacket::NetPacketSender>(val);
 
-        // optional 'description' field. join all fields
-        _description.clear();
-        for (int i = 1; i < fields.size(); ++i ) {
-            _description += NET_PROTO_PACKET_SEP_SYMBOL + fields[i];
-        }
-        if ( _description.size() ) _description = _description.substr(1); // delete leading sep. symbol
+        // optional 'description' field
+        if ( fields.size() > 1 ) _description = fields[1]; else _description.clear();
 
     } catch ( std::invalid_argument &ex ) {
         throw NetPacketException(NetPacket::NETPACKET_ERROR_INVALID_SENDER_ID,
@@ -288,8 +288,30 @@ void NetPacketCommand::makePacket()
 }
 
 
+void NetPacketCommand::parsePacket()
+{
+    NetPacket::parsePacket();
 
-                /*  Class implementation for FEATURE-type network packet  */
+    if ( _id != NetPacket::NETPACKET_ID_COMMAND ) {
+        throw NetPacketException(NetPacket::NETPACKET_ERROR_ID_MISMATCH,"ID value does not correspond to packet type");
+    }
+
+    std::vector<std::string> fields = split_str(_content, true);
+
+    // at least name of command must be in packet content part
+    if ( !fields.size() ) {
+        throw NetPacketException(NetPacket::NETPACKET_ERROR_INVALID_CONTENT_FIELD,
+                                 "Invalid content field");
+    }
+
+    _cmdName = fields[0];
+    if ( fields.size() > 1) _params = fields[1]; else _params.clear();
+}
+
+
+
+
+                /*  Base class implementation for FEATURE-type network packet  */
 
 NetPacketAbstractFeature::NetPacketAbstractFeature(const NetPacketFeatureType type, const std::string &name):
     NetPacket(NetPacket::NETPACKET_ID_FEATURE), _type(type), _name(name)
@@ -318,6 +340,9 @@ std::string NetPacketAbstractFeature::name() const
     return _name;
 }
 
+
+
+            /*  Template class implementation for FEATURE-type network packet  */
 
 
 template<typename T, NetPacketFeatureType type>
@@ -364,7 +389,7 @@ NetPacket::NetPacketError NetPacketException::err() const
 }
 
 
-const char* NetPacketException::what() const noexcept
+const char* NetPacketException::what() const NOEXCEPT_DECL
 {
     return _context.c_str();
 }

@@ -6,6 +6,15 @@
 #include <sstream>
 #include <exception>
 
+#ifdef _MSC_VER
+#if (_MSC_VER > 1800)
+    #define NOEXCEPT_DECL noexcept
+#else
+    #define NOEXCEPT_DECL // empty to compile with VS2013
+#endif
+#else
+    #define NOEXCEPT_DECL noexcept
+#endif
 
 
                         /***********************************
@@ -113,6 +122,7 @@ protected:
     std::string _params;
 
     virtual void makePacket();
+    virtual void parsePacket();
 
 };
 
@@ -163,7 +173,7 @@ public:
     NetPacketException(const NetPacket::NetPacketError err, const char* context);
 
     NetPacket::NetPacketError err() const;
-    const char* what() const noexcept;
+    const char* what() const NOEXCEPT_DECL;
 
 private:
     NetPacket::NetPacketError _err;
