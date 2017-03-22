@@ -2,7 +2,9 @@
 #define NETPACKET_H
 
 #include <string>
+#include <vector>
 #include <sstream>
+#include <exception>
 
 
 
@@ -24,8 +26,13 @@
 class NetPacket
 {
 public:
-    enum NetPacketID {NETPACKET_ID_UNKNOWN = -1, NETPACKET_ID_HELLO, NETPACKET_ID_COMMAND, NETPACKET_ID_FEATURE};
-    enum NetPacketSender {NETPACKET_SENDER_UNKNOWN = -1, NETPACKET_SENDER_SERVER, NETPACKET_SENDER_CLIENT};
+    enum NetPacketID {NETPACKET_ID_HELLO, NETPACKET_ID_COMMAND, NETPACKET_ID_FEATURE,
+                     NETPACKET_ID_UNKNOWN};
+    enum NetPacketSender {NETPACKET_SENDER_SERVER, NETPACKET_SENDER_CLIENT, NETPACKET_SENDER_UNKNOWN};
+
+    enum NetPacketError {NETPACKET_ERROR_OK, NETPACKET_ERROR_INVALID_ID_FIELD,NETPACKET_ERROR_INVALID_CONTENT_FIELD,
+                         NETPACKET_ERROR_ID_FIELD_OUTOFRANGE, NETPACKET_ERROR_ID_MISMATCH,
+                         NETPACKET_ERROR_INVALID_SENDER_ID, NETPACKET_ERROR_SENDER_ID_OUTOFRANGE};
 
     NetPacket(const NetPacketID id);
     NetPacket(const NetPacketID id, const std::string &content);
@@ -48,6 +55,8 @@ protected:
     std::string _packet;
 
     virtual void makePacket();
+
+    virtual void parsePacket();
 
     std::stringstream ss;
 
@@ -77,6 +86,7 @@ public:
 protected:
     NetPacketSender _senderID;
     std::string _description;
+    virtual void parsePacket();
 };
 
 
@@ -144,5 +154,20 @@ protected:
     T _value;
 };
 
+
+
+class NetPacketException: public std::exception
+{
+public:
+    NetPacketException(const NetPacket::NetPacketError err, const std::string &context);
+    NetPacketException(const NetPacket::NetPacketError err, const char* context);
+
+    NetPacket::NetPacketError err() const;
+    const char* what() const noexcept;
+
+private:
+    NetPacket::NetPacketError _err;
+    std::string _context;
+};
 
 #endif // NETPACKET_H
